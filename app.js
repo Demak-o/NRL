@@ -62,24 +62,36 @@ const STRATEGY_CARDS = [
   }
 ];
 
-const LIVE_CALLS = [
+const DECISION_SCENARIOS = [
   {
-    id: "go-for-corner",
-    name: "Go for Corner",
-    desc: "Pin them deep",
-    modifiers: { territory: -12, kicking: 6 }
+    minute: 15,
+    title: "Line Break!",
+    desc: "Your forwards have broken through the line. What's the next play?",
+    choices: [
+      { name: "Spread it wide", modifiers: { attack: 6, wideAttack: 0.2 } },
+      { name: "Crash it up", modifiers: { attack: 4, metres: 0.1 } },
+      { name: "Kick for territory", modifiers: { kicking: 5, possession: -0.06 } }
+    ]
   },
   {
-    id: "crash-bash",
-    name: "Crash & Bash",
-    desc: "Direct attack",
-    modifiers: { attack: 5, possession: 0.04 }
+    minute: 40,
+    title: "Possession Loss",
+    desc: "You've turned the ball over. How do you respond?",
+    choices: [
+      { name: "Tighten defence", modifiers: { defence: 5, errors: -0.08 } },
+      { name: "Aggressive press", modifiers: { defence: 4, errors: 0.08 } },
+      { name: "Regroup and reset", modifiers: { defence: 2, fatigue: -0.05 } }
+    ]
   },
   {
-    id: "high-line",
-    name: "High Line Speed",
-    desc: "Press up fast",
-    modifiers: { defence: 4, errors: 0.06 }
+    minute: 65,
+    title: "Momentum Shift",
+    desc: "The opposition is building pressure. What's your tactic?",
+    choices: [
+      { name: "Go for a try", modifiers: { attack: 5, errors: 0.1 } },
+      { name: "Grind them down", modifiers: { defence: 4, possession: 0.08 } },
+      { name: "Fast tempo attack", modifiers: { tempo: 8, fatigue: 0.12 } }
+    ]
   }
 ];
 
@@ -109,7 +121,7 @@ const state = {
   purchasesThisRound: 0,
   marketSeed: null,
   strategyCards: [],
-  activeLiveCall: null
+  triggeredDecisions: new Set()
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -138,7 +150,9 @@ function cacheElements() {
     "marketList", "squadCountText", "marketCountText", "ladder",
     "teamRating", "clubCard", "selectedList", "sourcePill",
     "careerModal", "careerTeamGrid", "beginCareerButton", "strategyCards",
-    "strategyCountText", "liveCallsArea"
+    "strategyCountText", "liveCallsArea", "matchPlanSection", "prepPlanSection",
+    "gameStrategyCards", "decisionModal", "decisionEyebrow", "decisionTitle",
+    "decisionText", "decisionChoices"
   ]) {
     els[id] = document.getElementById(id);
   }
@@ -198,6 +212,7 @@ function bindEvents() {
   els.toMatchButton.addEventListener("click", () => {
     if (!lineupIsValid()) return;
     resetMatch();
+    state.strategyCards = [];
     setPhase("match");
   });
 
@@ -322,6 +337,9 @@ function setPhase(phase) {
     els[id].classList.toggle("active", id === `${phase}View`);
   }
   els.phasePill.textContent = phase === "pregame" ? "Pregame" : phase === "match" ? "Game" : "Prep";
+  els.matchPlanSection.style.display = phase === "match" ? "block" : "none";
+  els.prepPlanSection.style.display = phase === "match" ? "none" : "block";
+  if (phase === "match") renderGameStrategy();
   renderAll();
 }
 
@@ -463,7 +481,7 @@ function renderPregame() {
     .map((item) => `<span>${escapeHtml(item)}</span>`)
     .join("");
 
-  els.strategyCountText.textContent = `${state.strategyCards.length} selected`;
+  els.strategyCountText.textContent = `${state.strategyCards.length}/1 pick`;
   els.strategyCards.innerHTML = STRATEGY_CARDS.map((card) => {
     const isSelected = state.strategyCards.includes(card.id);
     return `
@@ -521,9 +539,19 @@ function toggleStrategyCard(cardId) {
   if (index >= 0) {
     state.strategyCards.splice(index, 1);
   } else {
-    state.strategyCards.push(cardId);
+    state.strategyCards = [cardId];
   }
   renderPregame();
+}
+
+function toggleGameStrategy(cardId) {
+  const index = state.strategyCards.indexOf(cardId);
+  if (index >= 0) {
+    state.strategyCards.splice(index, 1);
+  } else {
+    state.strategyCards = [cardId];
+  }
+  renderGameStrategy();
 }
 
 function lineupIsValid() {
@@ -543,7 +571,6 @@ function renderMatch() {
   renderCrest(els.awayCrest, away);
   renderPitch();
   renderMatchRead();
-  renderLiveCalls();
   els.continueButton.disabled = state.minute < 80;
 }
 
@@ -557,6 +584,7 @@ function resetMatch() {
   state.possession = "home";
   state.territory = 50;
   state.ball = { x: 50, y: 50 };
+  state.triggeredDecisions = new Set();
   state.match = {
     home: homeTeam,
     away: awayTeam,
@@ -565,7 +593,7 @@ function resetMatch() {
     stats: { home: blankStats(), away: blankStats() },
     events: [{ minute: 0, text: `${homeTeam.shortName} and ${awayTeam.shortName} are set.` }],
     finished: false,
-    usedCalls: {}
+    decisionModifiers: { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0, metres: 0, wideAttack: 0, possession: 0, errors: 0, territory: 0 }
   };
   els.matchStatus.textContent = "Ready";
 }
@@ -636,9 +664,28 @@ function teamRating(lineup, tactic) {
   return Math.round(lineup.reduce((total, item) => total + scoreForRole(item.player, item.role, tactic), 0) / lineup.length);
 }
 
+function renderGameStrategy() {
+  els.gameStrategyCards.innerHTML = STRATEGY_CARDS.map((card) => {
+    const isSelected = state.strategyCards.includes(card.id);
+    return `
+      <button class="strategy-card ${isSelected ? "selected" : ""}" data-card="${card.id}" type="button">
+        <strong>${card.name}</strong>
+        <span>${card.desc}</span>
+      </button>
+    `;
+  }).join("");
+  els.gameStrategyCards.querySelectorAll(".strategy-card").forEach((button) => {
+    button.addEventListener("click", () => toggleGameStrategy(button.dataset.card));
+  });
+}
+
 function startMatch() {
   if (!state.match) resetMatch();
   if (state.minute >= 80) return;
+  if (!state.strategyCards.length) {
+    alert("Pick a game plan before starting");
+    return;
+  }
   state.running = true;
   els.matchStatus.textContent = "Live";
   restartTimerIfNeeded();
@@ -654,7 +701,7 @@ function pauseMatch() {
 function restartTimerIfNeeded() {
   if (!state.running) return;
   clearInterval(state.timer);
-  state.timer = setInterval(tickMatch, Math.max(140, 980 - Number(els.speedRange.value) * 155));
+  state.timer = setInterval(tickMatch, Math.max(70, 400 - Number(els.speedRange.value) * 60));
 }
 
 function tickMatch() {
@@ -667,6 +714,7 @@ function tickMatch() {
   fatigueTick(state.match.away);
   autoInterchange(state.match.home);
   autoInterchange(state.match.away);
+  checkDecisionMoment();
   playMinute();
   renderAll();
 }
@@ -678,19 +726,20 @@ function playMinute() {
   const defend = state.match[defendKey];
   const attackMods = getStrategyModifiers(attack);
   const defendMods = getStrategyModifiers(defend);
+  const decisionMods = attackKey === state.match.managerSide ? state.match.decisionModifiers : { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0, metres: 0, wideAttack: 0, possession: 0, errors: 0, territory: 0 };
 
   const pressure = teamPressure(attack, defend, defendMods);
   const rand = seededRandom(`${state.minute}-${attack.id}-${defend.id}`);
-  const carry = 5 + Math.round((pressure - 50) / 12) + Math.round(((attack.tactic.tempo + attackMods.tempo) - 50) / 20);
-  state.territory = clamp(state.territory + carry + (attackMods.territory || 0), 5, 95);
+  const carry = 5 + Math.round((pressure - 50) / 12) + Math.round(((attack.tactic.tempo + attackMods.tempo + decisionMods.tempo) - 50) / 20);
+  state.territory = clamp(state.territory + carry + (attackMods.territory || 0) + (decisionMods.territory || 0), 5, 95);
   state.ball.x = attackKey === "home" ? state.territory : 100 - state.territory;
   state.ball.y = clamp(48 + (rand - 0.5) * 36, 18, 82);
-  state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * (35 + (attackMods.metres || 0) * 100)));
-  state.match.stats[defendKey].tackles += Math.round((5 + Math.floor(rand * 4)) * (1 + defendMods.defence * 0.02));
+  state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * (35 + ((attackMods.metres || 0) + (decisionMods.metres || 0)) * 100)));
+  state.match.stats[defendKey].tackles += Math.round((5 + Math.floor(rand * 4)) * (1 + (defendMods.defence + decisionMods.defence) * 0.02));
 
   const eventRoll = rand * 100 + pressure * 0.12;
-  const errorMod = (attack.tactic.tempo - 50) / 8 + (attackMods.errors || 0) * 20;
-  const tryMod = (attackMods.wideAttack || 0) * 0.8;
+  const errorMod = (attack.tactic.tempo - 50) / 8 + ((attackMods.errors || 0) + (decisionMods.errors || 0)) * 20;
+  const tryMod = ((attackMods.wideAttack || 0) + (decisionMods.wideAttack || 0)) * 0.8;
 
   if (eventRoll > 96 + tryMod && state.territory > 78) {
     scoreTry(attackKey, attack, pressure, rand);
@@ -698,7 +747,7 @@ function playMinute() {
     lineBreak(attackKey, attack);
   } else if (eventRoll < 10 + errorMod) {
     errorEvent(attackKey, defendKey, attack);
-  } else if (eventRoll > 78 && (attack.tactic.kicking + attackMods.kicking) > 58 && state.minute > 20) {
+  } else if (eventRoll > 78 && (attack.tactic.kicking + attackMods.kicking + decisionMods.kicking) > 58 && state.minute > 20) {
     kickEvent(attackKey, defendKey, attack);
   } else if (state.minute % 6 === 0) {
     setRestartEvent(attackKey, attack);
@@ -808,7 +857,7 @@ function nextRound() {
   state.purchasesThisRound = 0;
   state.marketSeed = null;
   state.strategyCards = [];
-  state.activeLiveCall = null;
+  state.triggeredDecisions = new Set();
   recoverInjuries();
   setPhase("prep");
 }
@@ -884,8 +933,10 @@ function tacticalSpot(index, side) {
 
 function playerDot(item, team, x, y, extraClass) {
   const bg = extraClass ? team.secondary : team.primary;
-  const color = extraClass ? "#10130f" : "#ffffff";
-  return `<div class="player-dot ${extraClass}" title="${escapeHtml(item.player.name)}" style="left:${x}%;top:${y}%;background:${bg};color:${color}">${item.jersey}</div>`;
+  const textColor = extraClass ? "#ffffff" : "#ffffff";
+  const borderColor = extraClass ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.9)";
+  const shadow = extraClass ? "0 4px 10px rgba(0,0,0,0.3)" : "0 6px 14px rgba(0,0,0,0.5)";
+  return `<div class="player-dot ${extraClass}" title="${escapeHtml(item.player.name)}" style="left:${x}%;top:${y}%;background:${bg};color:${textColor};border-color:${borderColor};box-shadow:${shadow}">${item.jersey}</div>`;
 }
 
 function renderMatchRead() {
@@ -1144,52 +1195,40 @@ function renderCrest(el, team) {
   el.style.background = `linear-gradient(135deg, ${team.primary}, ${team.secondary})`;
 }
 
-function renderLiveCalls() {
-  if (!state.match || state.minute < 10) {
-    els.liveCallsArea.innerHTML = "";
-    return;
-  }
+function checkDecisionMoment() {
+  if (!state.match || state.match.managerSide !== "home") return;
+  const scenario = DECISION_SCENARIOS.find((s) => s.minute === state.minute);
+  if (!scenario || state.triggeredDecisions.has(scenario.minute)) return;
 
-  const callsUsed = Object.keys(state.match.usedCalls || {}).length;
-  const callsRemaining = 3 - callsUsed;
+  state.triggeredDecisions.add(scenario.minute);
+  pauseMatch();
+  showDecision(scenario);
+}
 
-  if (callsRemaining <= 0) {
-    els.liveCallsArea.innerHTML = `<p class="live-calls-exhausted">All tactical calls used.</p>`;
-    return;
-  }
-
-  els.liveCallsArea.innerHTML = `
-    <div class="live-calls-header">Tactical Calls (${callsRemaining} remaining)</div>
-    ${LIVE_CALLS.map((call) => {
-      const used = state.match.usedCalls?.[call.id];
-      return `
-        <button class="live-call-btn ${used ? "used" : ""}" data-call="${call.id}" type="button" ${used ? "disabled" : ""}>
-          <strong>${call.name}</strong>
-          <span>${call.desc}</span>
-        </button>
-      `;
-    }).join("")}
-  `;
-
-  els.liveCallsArea.querySelectorAll(".live-call-btn:not(.used)").forEach((button) => {
-    button.addEventListener("click", () => useLiveCall(button.dataset.call));
+function showDecision(scenario) {
+  els.decisionEyebrow.textContent = `${scenario.minute}'`;
+  els.decisionTitle.textContent = scenario.title;
+  els.decisionText.textContent = scenario.desc;
+  els.decisionChoices.innerHTML = scenario.choices.map((choice, index) => `
+    <button class="decision-choice" data-index="${index}" type="button">
+      ${choice.name}
+    </button>
+  `).join("");
+  els.decisionModal.style.display = "grid";
+  els.decisionChoices.querySelectorAll(".decision-choice").forEach((button) => {
+    button.addEventListener("click", () => makeDecision(scenario, Number(button.dataset.index)));
   });
 }
 
-function useLiveCall(callId) {
-  if (!state.match) return;
-  if (!state.match.usedCalls) state.match.usedCalls = {};
-  if (state.match.usedCalls[callId]) return;
-
-  state.match.usedCalls[callId] = true;
-  const call = LIVE_CALLS.find((c) => c.id === callId);
-  const managerSide = state.match.managerSide;
+function makeDecision(scenario, choiceIndex) {
+  const choice = scenario.choices[choiceIndex];
+  Object.assign(state.match.decisionModifiers, choice.modifiers);
   state.match.events.unshift({
     minute: state.minute,
-    text: `Coach calls: ${call.name}`
+    text: `Coach decision: ${choice.name}`
   });
-  renderLiveCalls();
-  renderMatchRead();
+  els.decisionModal.style.display = "none";
+  startMatch();
 }
 
 function updateSliderLabels() {

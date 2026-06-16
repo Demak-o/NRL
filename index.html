@@ -42,7 +42,14 @@
             </div>
           </section>
 
-          <section class="panel-section">
+          <section id="matchPlanSection" class="panel-section" style="display:none">
+            <div class="section-title">
+              <span>Game Plan</span>
+            </div>
+            <div id="gameStrategyCards" class="game-strategy-grid"></div>
+          </section>
+
+          <section id="prepPlanSection" class="panel-section">
             <div class="section-title">
               <span>Match Plan</span>
             </div>
@@ -243,6 +250,15 @@
         <h2 id="careerTitle">Pick the NRL club you manage</h2>
         <div id="careerTeamGrid" class="career-team-grid"></div>
         <button id="beginCareerButton" type="button">Begin Career</button>
+      </div>
+    </div>
+
+    <div id="decisionModal" class="career-modal" role="dialog" aria-modal="true" aria-labelledby="decisionTitle" style="display:none">
+      <div class="decision-dialog">
+        <p class="eyebrow" id="decisionEyebrow">60'</p>
+        <h2 id="decisionTitle">Opportunity</h2>
+        <p id="decisionText">Choose your move</p>
+        <div id="decisionChoices" class="decision-choices"></div>
       </div>
     </div>
 
