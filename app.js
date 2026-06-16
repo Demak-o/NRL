@@ -23,18 +23,19 @@ const BENCH = [
   ["17", ["LK", "SR", "PR"]]
 ];
 
-const FIELD_SPOTS = [
-  [12, 50], [26, 20], [27, 38], [27, 62], [26, 80], [39, 43], [39, 57],
-  [51, 43], [48, 50], [51, 57], [61, 38], [61, 62], [64, 50]
+const ALL_SLOTS = [
+  ...RUN_ON.map(([jersey, role]) => ({ jersey, role, bench: false })),
+  ...BENCH.map(([jersey, roles]) => ({ jersey, role: roles[0], roles, bench: true }))
 ];
-
-const TEAM_SPOTS_AWAY = FIELD_SPOTS.map(([x, y]) => [100 - x, y]);
 
 const els = {};
 const state = {
   squads: window.NRL_SQUADS,
-  homeId: "",
-  awayId: "",
+  fixtures: window.NRL_FIXTURES,
+  players: [],
+  career: null,
+  selectedCareerTeam: "",
+  phase: "prep",
   style: "balanced",
   running: false,
   timer: null,
@@ -43,53 +44,57 @@ const state = {
   possession: "home",
   territory: 50,
   match: null,
-  season: null
+  ladder: null,
+  injuriesCheckedRound: null
 };
 
 document.addEventListener("DOMContentLoaded", () => {
   cacheElements();
-  enrichSquads();
+  buildPlayerCatalog();
   bindEvents();
-  populateTeams();
-  createSeason();
-  resetMatch();
-  renderAll();
+  createLadder();
+  renderCareerPicker();
+  showCareerModal(true);
+  updateSliderLabels();
 });
 
 function cacheElements() {
   for (const id of [
-    "sourcePill", "syncButton", "teamSelect", "opponentSelect", "tempoRange",
-    "defenceRange", "kickingRange", "benchRange", "speedRange", "tempoValue",
-    "defenceValue", "kickingValue", "benchValue", "speedValue", "startButton",
-    "pauseButton", "resetButton", "simRoundButton", "homeCrest", "awayCrest",
-    "homeName", "awayName", "homeScore", "awayScore", "matchClock",
-    "matchStatus", "ball", "playersLayer", "statsGrid", "commentary",
-    "homeMomentum", "awayMomentum", "momentumBar", "lineupList", "benchList",
-    "teamRating", "squadSearch", "squadList", "ladder"
+    "careerEyebrow", "budgetText", "roundText", "newCareerButton",
+    "phasePill", "fixtureCard", "tempoRange", "defenceRange",
+    "kickingRange", "benchRange", "speedRange", "tempoValue",
+    "defenceValue", "kickingValue", "benchValue", "speedValue",
+    "prepView", "pregameView", "matchView", "toPregameButton",
+    "autoLineupButton", "toMatchButton", "injuryReport", "lineupEditor",
+    "homeCrest", "awayCrest", "homeName", "awayName", "homeScore",
+    "awayScore", "matchClock", "matchStatus", "ball", "playersLayer",
+    "startButton", "pauseButton", "resetButton", "continueButton",
+    "homeMomentum", "awayMomentum", "momentumBar", "statsGrid",
+    "commentary", "squadSearch", "marketSearch", "squadList",
+    "marketList", "squadCountText", "marketCountText", "ladder",
+    "teamRating", "clubCard", "selectedList", "sourcePill",
+    "careerModal", "careerTeamGrid", "beginCareerButton"
   ]) {
     els[id] = document.getElementById(id);
   }
 }
 
 function bindEvents() {
-  els.teamSelect.addEventListener("change", () => {
-    state.homeId = els.teamSelect.value;
-    if (state.homeId === state.awayId) {
-      state.awayId = firstOpponent(state.homeId);
-      els.opponentSelect.value = state.awayId;
-    }
-    resetMatch();
-    renderAll();
+  els.newCareerButton.addEventListener("click", () => {
+    pauseMatch();
+    state.career = null;
+    state.match = null;
+    createLadder();
+    showCareerModal(true);
   });
 
-  els.opponentSelect.addEventListener("change", () => {
-    state.awayId = els.opponentSelect.value;
-    if (state.homeId === state.awayId) {
-      state.homeId = firstOpponent(state.awayId);
-      els.teamSelect.value = state.homeId;
-    }
-    resetMatch();
-    renderAll();
+  els.beginCareerButton.addEventListener("click", () => {
+    if (!state.selectedCareerTeam) return;
+    startCareer(state.selectedCareerTeam);
+  });
+
+  document.querySelectorAll(".phase-buttons button").forEach((button) => {
+    button.addEventListener("click", () => setPhase(button.dataset.phase));
   });
 
   document.querySelectorAll(".segmented button").forEach((button) => {
@@ -97,19 +102,39 @@ function bindEvents() {
       document.querySelectorAll(".segmented button").forEach((item) => item.classList.remove("active"));
       button.classList.add("active");
       state.style = button.dataset.style;
-      refreshLineups();
-      renderMatchRead();
+      renderAll();
     });
   });
 
   for (const input of [els.tempoRange, els.defenceRange, els.kickingRange, els.benchRange, els.speedRange]) {
     input.addEventListener("input", () => {
       updateSliderLabels();
-      refreshLineups();
-      renderMatchRead();
       restartTimerIfNeeded();
+      renderMatchRead();
     });
   }
+
+  els.toPregameButton.addEventListener("click", () => {
+    if (isByeWeek()) {
+      advanceByeWeek();
+      return;
+    }
+    runInjuryCheck();
+    autoPickLineup();
+    setPhase("pregame");
+  });
+
+  els.autoLineupButton.addEventListener("click", () => {
+    autoPickLineup();
+    renderPregame();
+    renderSelectedList();
+  });
+
+  els.toMatchButton.addEventListener("click", () => {
+    if (!lineupIsValid()) return;
+    resetMatch();
+    setPhase("match");
+  });
 
   els.startButton.addEventListener("click", startMatch);
   els.pauseButton.addEventListener("click", pauseMatch);
@@ -118,27 +143,28 @@ function bindEvents() {
     resetMatch();
     renderAll();
   });
-  els.squadSearch.addEventListener("input", renderSquadList);
-  els.simRoundButton.addEventListener("click", simSeasonRound);
-  els.syncButton.addEventListener("click", syncLiveSquads);
+  els.continueButton.addEventListener("click", continueAfterMatch);
+  els.squadSearch.addEventListener("input", renderPrep);
+  els.marketSearch.addEventListener("input", renderPrep);
 }
 
-function populateTeams() {
-  const teams = state.squads.teams;
-  els.teamSelect.innerHTML = teams.map((team) => `<option value="${team.id}">${team.name}</option>`).join("");
-  els.opponentSelect.innerHTML = teams.map((team) => `<option value="${team.id}">${team.name}</option>`).join("");
-  state.homeId = teams.find((team) => team.name === "Brisbane Broncos")?.id || teams[0].id;
-  state.awayId = teams.find((team) => team.name === "Melbourne Storm")?.id || teams[1].id;
-  els.teamSelect.value = state.homeId;
-  els.opponentSelect.value = state.awayId;
-}
-
-function enrichSquads() {
+function buildPlayerCatalog() {
+  state.players = [];
   state.squads.teams.forEach((team, teamIndex) => {
-    team.players.forEach((player, playerIndex) => {
+    team.players.forEach((source, playerIndex) => {
+      const player = {
+        ...source,
+        originalTeamId: team.id,
+        currentTeamId: team.id,
+        injuryUntilRound: 0,
+        sold: false
+      };
       player.stats = buildStats(player, teamIndex, playerIndex);
       player.rating = Math.round((player.stats.attack + player.stats.defence + player.stats.fitness + player.stats.kicking) / 4);
-      player.fatigue = 0;
+      player.talent = buildTalent(player, teamIndex, playerIndex);
+      player.value = buildValue(player);
+      player.wage = Math.round(player.value * 0.19);
+      state.players.push(player);
     });
   });
 }
@@ -160,31 +186,296 @@ function buildStats(player, teamIndex, playerIndex) {
   };
 }
 
+function buildTalent(player, teamIndex, playerIndex) {
+  const seed = hash(`${player.name}-talent-${teamIndex}-${playerIndex}`);
+  return clamp(Math.round(player.rating + 3 + (seed % 18) - (player.squad === "top30" ? 2 : 0)), 55, 99);
+}
+
+function buildValue(player) {
+  const premium = Math.pow(player.rating - 45, 2) * 1450;
+  const talent = Math.max(0, player.talent - player.rating) * 36000;
+  const spine = player.positions.some((pos) => ["FB", "FE", "HB", "HK"].includes(pos)) ? 110000 : 0;
+  return roundMoney(120000 + premium + talent + spine);
+}
+
+function renderCareerPicker() {
+  state.selectedCareerTeam = state.squads.teams[0].id;
+  els.careerTeamGrid.innerHTML = state.squads.teams.map((team, index) => `
+    <button class="career-team ${index === 0 ? "selected" : ""}" data-team="${team.id}" type="button">
+      <span class="mini-crest" style="background:linear-gradient(135deg, ${team.primary}, ${team.secondary})">${initials(team.name)}</span>
+      <strong>${team.name}</strong>
+    </button>
+  `).join("");
+  els.careerTeamGrid.querySelectorAll(".career-team").forEach((button) => {
+    button.addEventListener("click", () => {
+      els.careerTeamGrid.querySelectorAll(".career-team").forEach((item) => item.classList.remove("selected"));
+      button.classList.add("selected");
+      state.selectedCareerTeam = button.dataset.team;
+    });
+  });
+}
+
+function showCareerModal(show) {
+  els.careerModal.classList.toggle("hidden", !show);
+}
+
+function startCareer(teamId) {
+  state.players.forEach((player) => {
+    player.currentTeamId = player.originalTeamId;
+    player.injuryUntilRound = 0;
+    player.sold = false;
+  });
+  const initialRoster = state.players.filter((player) => player.originalTeamId === teamId).map((player) => player.id);
+  state.career = {
+    teamId,
+    budget: 3000000,
+    roundIndex: 0,
+    rosterIds: initialRoster,
+    lineup: [],
+    injuryLog: [],
+    results: []
+  };
+  state.phase = "prep";
+  state.injuriesCheckedRound = null;
+  createLadder();
+  autoPickLineup();
+  showCareerModal(false);
+  renderAll();
+}
+
+function setPhase(phase) {
+  if (!state.career) return;
+  if (phase === "match" && !state.match && !isByeWeek()) {
+    if (!lineupIsValid()) autoPickLineup();
+    resetMatch();
+  }
+  state.phase = phase;
+  document.querySelectorAll(".phase-buttons button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.phase === phase);
+  });
+  for (const id of ["prepView", "pregameView", "matchView"]) {
+    els[id].classList.toggle("active", id === `${phase}View`);
+  }
+  els.phasePill.textContent = phase === "pregame" ? "Pregame" : phase === "match" ? "Game" : "Prep";
+  renderAll();
+}
+
+function renderAll() {
+  if (!state.career) return;
+  renderHeader();
+  renderFixture();
+  renderPrep();
+  renderPregame();
+  renderMatch();
+  renderLadder();
+  renderClubStatus();
+  renderSelectedList();
+}
+
+function renderHeader() {
+  const team = careerTeam();
+  els.careerEyebrow.textContent = `${team.name} career`;
+  els.budgetText.textContent = money(state.career.budget);
+  els.roundText.textContent = String(currentRound().round);
+  const totalPlayers = state.squads.teams.reduce((total, item) => total + item.players.length, 0);
+  els.sourcePill.textContent = `${state.squads.season} squads (${totalPlayers} players) and ${state.fixtures.season} fixtures. Ratings, money and injuries are game-generated.`;
+}
+
+function renderFixture() {
+  const fixture = currentTeamFixture();
+  const round = currentRound();
+  if (!fixture) {
+    els.fixtureCard.innerHTML = `
+      <span>${round.label} • ${round.dateRange}</span>
+      <strong>Bye week</strong>
+      <p>Recover, trade, and prepare for the next round.</p>
+    `;
+    els.toPregameButton.textContent = "Advance Bye";
+    return;
+  }
+  const home = teamById(fixture.home);
+  const away = teamById(fixture.away);
+  els.fixtureCard.innerHTML = `
+    <span>${round.label} • ${round.dateRange}</span>
+    <strong>${home.shortName} v ${away.shortName}</strong>
+    <p>${fixture.date || "Date TBA"}${fixture.venue ? ` • ${fixture.venue}` : ""}</p>
+  `;
+  els.toPregameButton.textContent = "Go To Pregame";
+}
+
+function renderPrep() {
+  const squadQuery = els.squadSearch.value.trim().toLowerCase();
+  const marketQuery = els.marketSearch.value.trim().toLowerCase();
+  const roster = careerRoster()
+    .filter((player) => playerMatches(player, squadQuery))
+    .sort((a, b) => b.rating - a.rating || b.talent - a.talent);
+  const market = marketPlayers()
+    .filter((player) => playerMatches(player, marketQuery))
+    .slice(0, 120);
+
+  els.squadCountText.textContent = `${careerRoster().length} players`;
+  els.marketCountText.textContent = `${marketPlayers().length} available`;
+  els.squadList.innerHTML = roster.map((player) => playerRow(player, "sell")).join("");
+  els.marketList.innerHTML = market.map((player) => playerRow(player, "buy")).join("");
+  bindMarketButtons();
+}
+
+function playerRow(player, mode) {
+  const team = teamById(player.originalTeamId);
+  const injured = isInjured(player);
+  const disabledSell = mode === "sell" && careerRoster().length <= 17;
+  const disabledBuy = mode === "buy" && state.career.budget < player.value;
+  const action = mode === "sell" ? "Sell" : "Recruit";
+  return `
+    <div class="player-row ${injured ? "injured" : ""}">
+      <div class="player-main">
+        <b>${escapeHtml(player.name)}</b>
+        <span>${player.positions.join("/")} • OVR ${player.rating} • TAL ${player.talent} • ${team.shortName}</span>
+        ${injured ? `<em>Injured until R${player.injuryUntilRound}</em>` : ""}
+      </div>
+      <div class="player-money">
+        <strong>${money(player.value)}</strong>
+        <button data-action="${mode}" data-player="${player.id}" ${disabledSell || disabledBuy ? "disabled" : ""} type="button">${action}</button>
+      </div>
+    </div>
+  `;
+}
+
+function bindMarketButtons() {
+  document.querySelectorAll("[data-action='buy']").forEach((button) => {
+    button.addEventListener("click", () => recruitPlayer(button.dataset.player));
+  });
+  document.querySelectorAll("[data-action='sell']").forEach((button) => {
+    button.addEventListener("click", () => sellPlayer(button.dataset.player));
+  });
+}
+
+function recruitPlayer(playerId) {
+  const player = playerById(playerId);
+  if (!player || state.career.rosterIds.includes(playerId) || state.career.budget < player.value) return;
+  state.career.budget -= player.value;
+  player.currentTeamId = state.career.teamId;
+  state.career.rosterIds.push(playerId);
+  renderAll();
+}
+
+function sellPlayer(playerId) {
+  if (careerRoster().length <= 17) return;
+  const player = playerById(playerId);
+  state.career.rosterIds = state.career.rosterIds.filter((id) => id !== playerId);
+  state.career.budget += Math.round(player.value * 0.72);
+  player.currentTeamId = player.originalTeamId;
+  player.sold = true;
+  state.career.lineup = state.career.lineup.filter((slot) => slot.playerId !== playerId);
+  renderAll();
+}
+
+function runInjuryCheck() {
+  const roundNo = currentRound().round;
+  if (state.injuriesCheckedRound === roundNo) return;
+  const log = [];
+  careerRoster().forEach((player) => {
+    if (isInjured(player)) return;
+    const risk = 0.018 + (78 - player.stats.fitness) / 1800;
+    const roll = seededRandom(`${roundNo}-${player.id}-injury`);
+    if (roll < risk) {
+      const weeks = 1 + Math.floor(seededRandom(`${player.id}-${roundNo}-weeks`) * 4);
+      player.injuryUntilRound = roundNo + weeks;
+      log.push(`${player.name}: ${weeks} week${weeks > 1 ? "s" : ""}`);
+    }
+  });
+  state.career.injuryLog = log.length ? log : ["No new injuries in the final run."];
+  state.injuriesCheckedRound = roundNo;
+}
+
+function renderPregame() {
+  els.injuryReport.innerHTML = (state.career.injuryLog.length ? state.career.injuryLog : ["Run the prep stage to check injuries."])
+    .map((item) => `<span>${escapeHtml(item)}</span>`)
+    .join("");
+  els.lineupEditor.innerHTML = ALL_SLOTS.map((slot, index) => {
+    const selected = state.career.lineup[index]?.playerId || "";
+    const options = healthyRoster()
+      .sort((a, b) => scoreForRole(b, slot.role, getHumanTactic()) - scoreForRole(a, slot.role, getHumanTactic()))
+      .map((player) => `<option value="${player.id}" ${player.id === selected ? "selected" : ""}>${player.name} • ${player.positions.join("/")}</option>`)
+      .join("");
+    return `
+      <label class="lineup-slot">
+        <span>${slot.jersey}</span>
+        <strong>${slot.bench ? "Bench" : POSITIONS[slot.role]}</strong>
+        <select data-slot="${index}" aria-label="${slot.jersey} ${POSITIONS[slot.role]}">
+          <option value="">Unpicked</option>
+          ${options}
+        </select>
+      </label>
+    `;
+  }).join("");
+  els.lineupEditor.querySelectorAll("select").forEach((select) => {
+    select.addEventListener("change", () => {
+      const index = Number(select.dataset.slot);
+      state.career.lineup[index] = {
+        ...ALL_SLOTS[index],
+        playerId: select.value
+      };
+      renderSelectedList();
+    });
+  });
+}
+
+function autoPickLineup() {
+  const selected = new Set();
+  state.career.lineup = ALL_SLOTS.map((slot) => {
+    const roles = slot.roles || [slot.role];
+    const player = bestForRole(healthyRoster(), roles, selected, getHumanTactic());
+    if (player) selected.add(player.id);
+    return { ...slot, playerId: player?.id || "" };
+  });
+}
+
+function lineupIsValid() {
+  const picked = state.career.lineup.map((slot) => slot.playerId).filter(Boolean);
+  return picked.length === 17 && new Set(picked).size === 17;
+}
+
+function renderMatch() {
+  if (!state.match) return;
+  const { home, away, score } = state.match;
+  els.homeName.textContent = home.name;
+  els.awayName.textContent = away.name;
+  els.homeScore.textContent = score.home;
+  els.awayScore.textContent = score.away;
+  els.matchClock.textContent = `${state.minute}'`;
+  renderCrest(els.homeCrest, home);
+  renderCrest(els.awayCrest, away);
+  renderPitch();
+  renderMatchRead();
+  els.continueButton.disabled = state.minute < 80;
+}
+
 function resetMatch() {
-  const home = teamById(state.homeId);
-  const away = teamById(state.awayId);
+  const fixture = currentTeamFixture();
+  if (!fixture) return;
+  const homeTeam = buildMatchTeam(teamById(fixture.home), fixture.home === state.career.teamId);
+  const awayTeam = buildMatchTeam(teamById(fixture.away), fixture.away === state.career.teamId);
   state.minute = 0;
   state.running = false;
   state.possession = "home";
   state.territory = 50;
   state.ball = { x: 50, y: 50 };
   state.match = {
-    home: buildMatchTeam(home, true),
-    away: buildMatchTeam(away, false),
+    home: homeTeam,
+    away: awayTeam,
+    managerSide: fixture.home === state.career.teamId ? "home" : "away",
     score: { home: 0, away: 0 },
-    stats: {
-      home: blankStats(),
-      away: blankStats()
-    },
-    events: [{ minute: 0, text: `${home.shortName} and ${away.shortName} are set.` }]
+    stats: { home: blankStats(), away: blankStats() },
+    events: [{ minute: 0, text: `${homeTeam.shortName} and ${awayTeam.shortName} are set.` }],
+    finished: false
   };
-  refreshLineups();
-  if (els.matchStatus) els.matchStatus.textContent = "Ready";
+  els.matchStatus.textContent = "Ready";
 }
 
-function buildMatchTeam(team, isHuman) {
-  const tactic = isHuman ? getHumanTactic() : getOpponentTactic(team);
-  const lineup = pickLineup(team.players, tactic);
+function buildMatchTeam(team, managed) {
+  const tactic = managed ? getHumanTactic() : getOpponentTactic(team);
+  const lineup = managed ? lineupFromCareer(team, tactic) : autoLineupForTeam(team, tactic);
   return {
     ...team,
     tactic,
@@ -195,44 +486,44 @@ function buildMatchTeam(team, isHuman) {
   };
 }
 
-function refreshLineups() {
-  if (!state.match) return;
-  state.match.home.tactic = getHumanTactic();
-  const lineup = pickLineup(teamById(state.homeId).players, state.match.home.tactic);
-  state.match.home.runOn = lineup.runOn;
-  state.match.home.bench = lineup.bench;
-  state.match.home.rating = lineup.rating;
-  state.match.away.tactic = getOpponentTactic(teamById(state.awayId));
-  const awayLineup = pickLineup(teamById(state.awayId).players, state.match.away.tactic);
-  state.match.away.runOn = awayLineup.runOn;
-  state.match.away.bench = awayLineup.bench;
-  state.match.away.rating = awayLineup.rating;
+function lineupFromCareer(team, tactic) {
+  const runOn = state.career.lineup.slice(0, 13).map((slot) => ({
+    ...slot,
+    player: playerById(slot.playerId),
+    fatigue: 0
+  }));
+  const bench = state.career.lineup.slice(13).map((slot) => ({
+    ...slot,
+    player: playerById(slot.playerId),
+    fatigue: 0
+  }));
+  return { runOn, bench, rating: teamRating([...runOn, ...bench], tactic) };
 }
 
-function pickLineup(players, tactic) {
+function autoLineupForTeam(team, tactic) {
   const selected = new Set();
+  const source = team.players.map((player) => playerById(player.id)).filter(Boolean);
   const runOn = RUN_ON.map(([jersey, role]) => {
-    const player = bestForRole(players, role, selected, tactic);
+    const player = bestForRole(source, [role], selected, tactic);
     selected.add(player.id);
     return { jersey, role, player, fatigue: 0 };
   });
   const bench = BENCH.map(([jersey, roles]) => {
-    const player = bestForRole(players, roles, selected, tactic);
+    const player = bestForRole(source, roles, selected, tactic);
     selected.add(player.id);
-    return { jersey, role: roles[0], player, fatigue: 0 };
+    return { jersey, role: roles[0], roles, player, fatigue: 0 };
   });
-  const rating = Math.round([...runOn, ...bench].reduce((total, item) => total + scoreForRole(item.player, item.role, tactic), 0) / 17);
-  return { runOn, bench, rating };
+  return { runOn, bench, rating: teamRating([...runOn, ...bench], tactic) };
 }
 
-function bestForRole(players, role, selected, tactic) {
-  const roles = Array.isArray(role) ? role : [role];
-  const pool = players.filter((player) => !selected.has(player.id));
+function bestForRole(players, roles, selected, tactic) {
+  const pool = players.filter((player) => player && !selected.has(player.id) && !isInjured(player));
   return pool.sort((a, b) => {
+    const role = roles[0];
     const aFit = roles.some((code) => a.positions.includes(code)) ? 18 : 0;
     const bFit = roles.some((code) => b.positions.includes(code)) ? 18 : 0;
-    return scoreForRole(b, roles[0], tactic) + bFit - (scoreForRole(a, roles[0], tactic) + aFit);
-  })[0] || players[0];
+    return scoreForRole(b, role, tactic) + bFit - (scoreForRole(a, role, tactic) + aFit);
+  })[0] || players.find((player) => !selected.has(player.id));
 }
 
 function scoreForRole(player, role, tactic) {
@@ -244,29 +535,13 @@ function scoreForRole(player, role, tactic) {
   return stats.attack * 0.4 + stats.fitness * 0.24 + stats.defence * 0.22 + stats.kicking * 0.08 + fit + tempoBoost;
 }
 
-function getHumanTactic() {
-  return {
-    style: state.style,
-    tempo: Number(els.tempoRange?.value || 55),
-    defence: Number(els.defenceRange?.value || 58),
-    kicking: Number(els.kickingRange?.value || 52),
-    benchMinute: Number(els.benchRange?.value || 45)
-  };
-}
-
-function getOpponentTactic(team) {
-  const seed = hash(team.id);
-  return {
-    style: ["balanced", "expansive", "territory"][seed % 3],
-    tempo: 45 + (seed % 32),
-    defence: 45 + ((seed >> 2) % 34),
-    kicking: 44 + ((seed >> 4) % 38),
-    benchMinute: 35 + ((seed >> 6) % 24)
-  };
+function teamRating(lineup, tactic) {
+  return Math.round(lineup.reduce((total, item) => total + scoreForRole(item.player, item.role, tactic), 0) / lineup.length);
 }
 
 function startMatch() {
-  if (state.minute >= 80) resetMatch();
+  if (!state.match) resetMatch();
+  if (state.minute >= 80) return;
   state.running = true;
   els.matchStatus.textContent = "Live";
   restartTimerIfNeeded();
@@ -276,13 +551,13 @@ function pauseMatch() {
   state.running = false;
   clearInterval(state.timer);
   state.timer = null;
-  els.matchStatus.textContent = state.minute >= 80 ? "Full time" : "Paused";
+  if (els.matchStatus && state.match && !state.match.finished) els.matchStatus.textContent = "Paused";
 }
 
 function restartTimerIfNeeded() {
   if (!state.running) return;
   clearInterval(state.timer);
-  state.timer = setInterval(tickMatch, Math.max(150, 950 - Number(els.speedRange.value) * 150));
+  state.timer = setInterval(tickMatch, Math.max(140, 980 - Number(els.speedRange.value) * 155));
 }
 
 function tickMatch() {
@@ -305,33 +580,24 @@ function playMinute() {
   const attack = state.match[attackKey];
   const defend = state.match[defendKey];
   const pressure = teamPressure(attack, defend);
-  const rand = seededMinuteRandom(state.minute, attack.id, defend.id);
-  const carry = 5 + Math.round((pressure - 50) / 12) + Math.round((attack.tactic.tempo - 50) / 18);
-  state.territory = clamp(state.territory + (attackKey === "home" ? carry : -carry), 4, 96);
+  const rand = seededRandom(`${state.minute}-${attack.id}-${defend.id}`);
+  const carry = 5 + Math.round((pressure - 50) / 12) + Math.round((attack.tactic.tempo - 50) / 20);
+  state.territory = clamp(state.territory + carry, 5, 95);
   state.ball.x = attackKey === "home" ? state.territory : 100 - state.territory;
-  state.ball.y = 38 + (rand * 24);
-
+  state.ball.y = clamp(48 + (rand - 0.5) * 36, 18, 82);
   state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * 35));
   state.match.stats[defendKey].tackles += 5 + Math.floor(rand * 4);
 
   const eventRoll = rand * 100 + pressure * 0.12;
-  if (eventRoll > 96 && inRedZone(attackKey)) {
+  if (eventRoll > 96 && state.territory > 78) {
     scoreTry(attackKey, attack, pressure, rand);
-    return;
-  }
-  if (eventRoll > 88 && state.minute > 8) {
+  } else if (eventRoll > 88 && state.minute > 8) {
     lineBreak(attackKey, attack);
-    return;
-  }
-  if (eventRoll < 10 + (attack.tactic.tempo - 50) / 8) {
+  } else if (eventRoll < 10 + (attack.tactic.tempo - 50) / 8) {
     errorEvent(attackKey, defendKey, attack);
-    return;
-  }
-  if (eventRoll > 78 && attack.tactic.kicking > 58 && state.minute > 20) {
+  } else if (eventRoll > 78 && attack.tactic.kicking > 58 && state.minute > 20) {
     kickEvent(attackKey, defendKey, attack);
-    return;
-  }
-  if (state.minute % 6 === 0) {
+  } else if (state.minute % 6 === 0) {
     setRestartEvent(attackKey, attack);
   }
 }
@@ -352,17 +618,17 @@ function scoreTry(side, team, pressure, rand) {
 }
 
 function lineBreak(side, team) {
-  const player = chooseScorer(team, seededMinuteRandom(state.minute + 7, team.id, "break"));
+  const player = chooseScorer(team, seededRandom(`${state.minute + 7}-${team.id}-break`));
   state.match.stats[side].lineBreaks += 1;
   state.match.events.unshift({ minute: state.minute, text: `${player.name} breaks the line for ${team.shortName}.` });
-  state.territory = clamp(state.territory + (side === "home" ? 14 : -14), 4, 96);
+  state.territory = clamp(state.territory + 14, 5, 95);
 }
 
 function errorEvent(attackKey, defendKey, team) {
   state.match.stats[attackKey].errors += 1;
   state.match.events.unshift({ minute: state.minute, text: `${team.shortName} lose shape and turn it over.` });
   state.possession = defendKey;
-  state.territory = 100 - state.territory;
+  state.territory = clamp(100 - state.territory, 18, 82);
 }
 
 function kickEvent(attackKey, defendKey, team) {
@@ -370,7 +636,7 @@ function kickEvent(attackKey, defendKey, team) {
   const pinned = team.tactic.kicking + teamAverage(team, "kicking") > 132;
   state.match.events.unshift({ minute: state.minute, text: `${kicker.name} kicks ${pinned ? "deep into the corner" : "early for territory"}.` });
   state.possession = defendKey;
-  state.territory = pinned ? 18 : 35;
+  state.territory = pinned ? 16 : 34;
 }
 
 function setRestartEvent(side, team) {
@@ -381,14 +647,70 @@ function setRestartEvent(side, team) {
 function finishMatch() {
   pauseMatch();
   state.minute = 80;
+  state.match.finished = true;
+  els.matchStatus.textContent = "Full time";
+  const score = state.match.score;
   const home = state.match.home.shortName;
   const away = state.match.away.shortName;
-  const score = state.match.score;
   const result = score.home === score.away ? "It ends level." : score.home > score.away ? `${home} win.` : `${away} win.`;
   state.match.events.unshift({ minute: 80, text: `Full time: ${home} ${score.home}, ${away} ${score.away}. ${result}` });
-  els.matchStatus.textContent = "Full time";
-  updateSeasonFromMatch();
+  applyRoundResults(score.home, score.away);
   renderAll();
+}
+
+function applyRoundResults(managedHomeScore, managedAwayScore) {
+  const round = currentRound();
+  if (state.career.results.some((result) => result.round === round.round)) return;
+  const fixture = currentTeamFixture();
+  round.matches.forEach((match) => {
+    let homeScore;
+    let awayScore;
+    if (fixture && match.home === fixture.home && match.away === fixture.away) {
+      homeScore = managedHomeScore;
+      awayScore = managedAwayScore;
+    } else {
+      const simulated = simResult(teamById(match.home), teamById(match.away), round.round);
+      homeScore = simulated.home;
+      awayScore = simulated.away;
+    }
+    applyLadderResult(match.home, match.away, homeScore, awayScore);
+  });
+  state.career.results.push({ round: round.round });
+}
+
+function continueAfterMatch() {
+  if (!state.match?.finished) return;
+  nextRound();
+}
+
+function advanceByeWeek() {
+  const round = currentRound();
+  if (!state.career.results.some((result) => result.round === round.round)) {
+    round.matches.forEach((match) => {
+      const simulated = simResult(teamById(match.home), teamById(match.away), round.round);
+      applyLadderResult(match.home, match.away, simulated.home, simulated.away);
+    });
+    state.career.results.push({ round: round.round });
+  }
+  nextRound();
+}
+
+function nextRound() {
+  state.career.roundIndex = Math.min(state.career.roundIndex + 1, state.fixtures.rounds.length - 1);
+  state.career.injuryLog = [];
+  state.injuriesCheckedRound = null;
+  state.match = null;
+  state.minute = 0;
+  state.ball = { x: 50, y: 50 };
+  recoverInjuries();
+  setPhase("prep");
+}
+
+function recoverInjuries() {
+  const roundNo = currentRound().round;
+  careerRoster().forEach((player) => {
+    if (player.injuryUntilRound <= roundNo) player.injuryUntilRound = 0;
+  });
 }
 
 function fatigueTick(team) {
@@ -414,110 +736,45 @@ function autoInterchange(team) {
   state.match.events.unshift({ minute: state.minute, text: `${team.shortName} send ${bench.player.name} on for fresh legs.` });
 }
 
-function renderAll() {
-  updateSliderLabels();
-  renderHeader();
-  renderPitch();
-  renderLineup();
-  renderSquadList();
-  renderMatchRead();
-  renderLadder();
-}
-
-function updateSliderLabels() {
-  els.tempoValue.textContent = els.tempoRange.value;
-  els.defenceValue.textContent = els.defenceRange.value;
-  els.kickingValue.textContent = els.kickingRange.value;
-  els.benchValue.textContent = `${els.benchRange.value}'`;
-  els.speedValue.textContent = `${els.speedRange.value}x`;
-}
-
-function renderHeader() {
-  const { home, away, score } = state.match;
-  els.homeName.textContent = home.name;
-  els.awayName.textContent = away.name;
-  els.homeScore.textContent = score.home;
-  els.awayScore.textContent = score.away;
-  els.matchClock.textContent = `${state.minute}'`;
-  renderCrest(els.homeCrest, home);
-  renderCrest(els.awayCrest, away);
-  const totalPlayers = state.squads.teams.reduce((total, team) => total + team.players.length, 0);
-  els.sourcePill.textContent = `${state.squads.season} squads • ${totalPlayers} players • ${state.squads.generatedFrom}`;
-}
-
-function renderCrest(el, team) {
-  el.textContent = initials(team.name);
-  el.style.background = `linear-gradient(135deg, ${team.primary}, ${team.secondary})`;
-}
-
 function renderPitch() {
   const home = state.match.home;
   const away = state.match.away;
   els.ball.style.left = `${state.ball.x}%`;
   els.ball.style.top = `${state.ball.y}%`;
-  const jitter = seededMinuteRandom(state.minute, state.homeId, state.awayId) * 3;
   const dots = [];
   home.runOn.forEach((item, index) => {
-    const [x, y] = FIELD_SPOTS[index];
-    dots.push(playerDot(item, home, x + attackingShift("home"), y + jitter - 1.5, ""));
+    const spot = tacticalSpot(index, "home");
+    dots.push(playerDot(item, home, spot.x, spot.y, ""));
   });
   away.runOn.forEach((item, index) => {
-    const [x, y] = TEAM_SPOTS_AWAY[index];
-    dots.push(playerDot(item, away, x + attackingShift("away"), y - jitter + 1.5, "away"));
+    const spot = tacticalSpot(index, "away");
+    dots.push(playerDot(item, away, spot.x, spot.y, "away"));
   });
   els.playersLayer.innerHTML = dots.join("");
+}
+
+function tacticalSpot(index, side) {
+  const attacking = state.possession === side;
+  const direction = side === "home" ? 1 : -1;
+  const ballX = state.ball.x;
+  const ballY = state.ball.y;
+  const lane = [50, 22, 36, 64, 78, 42, 58, 45, 52, 59, 37, 67, 50][index];
+  const attackOffsets = [-18, -9, -6, -6, -9, -4, -2, 2, 0, 3, 6, 6, 4];
+  const defenceLine = ballX + direction * 10;
+  const x = attacking ? ballX + direction * attackOffsets[index] : defenceLine + direction * Math.min(index % 5, 2);
+  const spread = attacking ? (lane - 50) * 0.84 : (lane - 50) * 0.94;
+  const y = ballY + spread;
+  return { x: clamp(x, 6, 94), y: clamp(y, 9, 91) };
 }
 
 function playerDot(item, team, x, y, extraClass) {
   const bg = extraClass ? team.secondary : team.primary;
   const color = extraClass ? "#10130f" : "#ffffff";
-  return `<div class="player-dot ${extraClass}" title="${escapeHtml(item.player.name)}" style="left:${clamp(x, 6, 94)}%;top:${clamp(y, 8, 92)}%;background:${bg};color:${color}">${item.jersey}</div>`;
-}
-
-function attackingShift(side) {
-  const direction = state.possession === side ? 1 : -1;
-  return direction * (state.territory - 50) * 0.18;
-}
-
-function renderLineup() {
-  const team = state.match.home;
-  els.teamRating.textContent = `${team.rating} OVR`;
-  els.lineupList.innerHTML = team.runOn.map((item) => lineupItem(item, team)).join("");
-  els.benchList.innerHTML = team.bench.map((item) => lineupItem(item, team)).join("");
-}
-
-function lineupItem(item, team) {
-  const freshness = clamp(100 - item.fatigue * 2, 0, 100);
-  return `
-    <div class="lineup-item">
-      <div class="jersey" style="background:${team.primary}">${item.jersey}</div>
-      <div>
-        <b>${escapeHtml(item.player.name)}</b>
-        <span>${item.role} • ${item.player.positions.join("/")}</span>
-      </div>
-      <div class="fatigue"><div style="width:${freshness}%"></div></div>
-    </div>
-  `;
-}
-
-function renderSquadList() {
-  const query = els.squadSearch.value.trim().toLowerCase();
-  const team = teamById(state.homeId);
-  const players = team.players
-    .filter((player) => !query || player.name.toLowerCase().includes(query) || player.positions.join(" ").toLowerCase().includes(query))
-    .sort((a, b) => b.rating - a.rating);
-  els.squadList.innerHTML = players.map((player) => `
-    <div class="squad-row">
-      <div>
-        <b>${escapeHtml(player.name)}</b>
-        <span>${player.positions.map((code) => POSITIONS[code]).join(", ")} • ${player.squad}</span>
-      </div>
-      <strong>${player.rating}</strong>
-    </div>
-  `).join("");
+  return `<div class="player-dot ${extraClass}" title="${escapeHtml(item.player.name)}" style="left:${x}%;top:${y}%;background:${bg};color:${color}">${item.jersey}</div>`;
 }
 
 function renderMatchRead() {
+  if (!state.match) return;
   const homePower = teamPower(state.match.home);
   const awayPower = teamPower(state.match.away);
   const total = homePower + awayPower;
@@ -528,7 +785,7 @@ function renderMatchRead() {
   els.momentumBar.style.background = homeMomentum >= 50 ? "var(--good)" : "var(--bad)";
   const stats = state.match.stats;
   els.statsGrid.innerHTML = [
-    ["Possession", `${state.possession === "home" ? state.match.home.shortName : state.match.away.shortName}`],
+    ["Possession", state.possession === "home" ? state.match.home.shortName : state.match.away.shortName],
     ["Territory", `${Math.round(state.territory)}m`],
     ["Meters", `${stats.home.meters}-${stats.away.meters}`],
     ["Line breaks", `${stats.home.lineBreaks}-${stats.away.lineBreaks}`],
@@ -538,46 +795,55 @@ function renderMatchRead() {
   els.commentary.innerHTML = state.match.events.slice(0, 12).map((event) => `<li><b>${event.minute}'</b> ${escapeHtml(event.text)}</li>`).join("");
 }
 
-function createSeason() {
-  state.season = {
-    round: 1,
-    playedMatches: new Set(),
-    ladder: Object.fromEntries(state.squads.teams.map((team) => [team.id, {
-      teamId: team.id,
-      played: 0,
-      points: 0,
-      for: 0,
-      against: 0
-    }]))
-  };
+function renderClubStatus() {
+  const team = careerTeam();
+  const roster = careerRoster();
+  const avg = Math.round(roster.reduce((total, player) => total + player.rating, 0) / roster.length);
+  const talent = Math.round(roster.reduce((total, player) => total + player.talent, 0) / roster.length);
+  els.teamRating.textContent = `${avg} OVR`;
+  els.clubCard.innerHTML = `
+    <div class="club-banner" style="background:linear-gradient(135deg, ${team.primary}, ${team.secondary})">
+      <span>${initials(team.name)}</span>
+      <strong>${team.name}</strong>
+    </div>
+    <div class="club-metrics">
+      <span>Squad <b>${roster.length}</b></span>
+      <span>Talent <b>${talent}</b></span>
+      <span>Injured <b>${roster.filter(isInjured).length}</b></span>
+    </div>
+  `;
 }
 
-function simSeasonRound() {
-  const teams = [...state.squads.teams];
-  const used = new Set();
-  for (let i = 0; i < teams.length; i += 1) {
-    const home = teams[i];
-    if (used.has(home.id)) continue;
-    const opponent = teams.find((team) => team.id !== home.id && !used.has(team.id) && !state.season.playedMatches.has(matchKey(home.id, team.id)));
-    if (!opponent) continue;
-    const result = simResult(home, opponent);
-    applySeasonResult(home.id, opponent.id, result.home, result.away);
-    used.add(home.id);
-    used.add(opponent.id);
-  }
-  state.season.round += 1;
-  renderLadder();
+function renderSelectedList() {
+  const slots = state.career?.lineup || [];
+  els.selectedList.innerHTML = slots.map((slot) => {
+    const player = playerById(slot.playerId);
+    return `
+      <div class="lineup-item">
+        <div class="jersey" style="background:${careerTeam().primary}">${slot.jersey}</div>
+        <div>
+          <b>${player ? escapeHtml(player.name) : "Unpicked"}</b>
+          <span>${slot.role} ${player ? `• OVR ${player.rating}` : ""}</span>
+        </div>
+        <strong>${player ? player.positions.join("/") : "--"}</strong>
+      </div>
+    `;
+  }).join("");
 }
 
-function updateSeasonFromMatch() {
-  const key = matchKey(state.homeId, state.awayId);
-  if (state.season.playedMatches.has(key)) return;
-  applySeasonResult(state.homeId, state.awayId, state.match.score.home, state.match.score.away);
+function createLadder() {
+  state.ladder = Object.fromEntries(state.squads.teams.map((team) => [team.id, {
+    teamId: team.id,
+    played: 0,
+    points: 0,
+    for: 0,
+    against: 0
+  }]));
 }
 
-function applySeasonResult(homeId, awayId, homeScore, awayScore) {
-  const home = state.season.ladder[homeId];
-  const away = state.season.ladder[awayId];
+function applyLadderResult(homeId, awayId, homeScore, awayScore) {
+  const home = state.ladder[homeId];
+  const away = state.ladder[awayId];
   home.played += 1;
   away.played += 1;
   home.for += homeScore;
@@ -592,88 +858,95 @@ function applySeasonResult(homeId, awayId, homeScore, awayScore) {
   } else {
     away.points += 2;
   }
-  state.season.playedMatches.add(matchKey(homeId, awayId));
 }
 
 function renderLadder() {
-  const rows = Object.values(state.season.ladder)
+  if (!state.ladder) return;
+  const rows = Object.values(state.ladder)
     .sort((a, b) => b.points - a.points || (b.for - b.against) - (a.for - a.against) || b.for - a.for)
-    .slice(0, 8);
+    .slice(0, 10);
   els.ladder.innerHTML = rows.map((row, index) => {
     const team = teamById(row.teamId);
     return `<div class="ladder-row"><span>${index + 1}</span><b>${team.shortName}</b><span>${row.played}</span><strong>${row.points}</strong></div>`;
   }).join("");
 }
 
-async function syncLiveSquads() {
-  els.sourcePill.textContent = "Syncing squads...";
-  try {
-    const response = await fetch("https://en.wikipedia.org/api/rest_v1/page/html/List_of_current_NRL_team_squads");
-    if (!response.ok) throw new Error("Roster source unavailable");
-    const html = await response.text();
-    const live = parseSquadsFromHtml(html);
-    if (live.teams.length !== 17) throw new Error("Unexpected team count");
-    state.squads = live;
-    enrichSquads();
-    populateTeams();
-    createSeason();
-    resetMatch();
-    renderAll();
-  } catch (error) {
-    els.sourcePill.textContent = `Using seeded squads • sync blocked`;
-  }
-}
-
-function parseSquadsFromHtml(html) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  const names = window.NRL_SQUADS.teams.map((team) => team.name);
-  const teams = names.map((name) => {
-    const seed = window.NRL_SQUADS.teams.find((team) => team.name === name);
-    const h2 = [...doc.querySelectorAll("h2")].find((heading) => heading.textContent.trim() === name);
-    if (!h2) return seed;
-    const table = h2.parentElement?.nextElementSibling?.tagName === "TABLE" ? h2.parentElement.nextElementSibling : h2.nextElementSibling;
-    const headCoach = [...table.querySelectorAll("p b")].find((b) => /Head coach/.test(b.textContent));
-    const cutoffCell = headCoach?.closest("td");
-    const players = [...table.querySelectorAll("li")]
-      .filter((li) => li.querySelector("small") && (!cutoffCell || !cutoffCell.contains(li)))
-      .map((li, index) => {
-        const text = li.textContent.replace(/\s+/g, " ").trim();
-        const [rawName, rawPositions = ""] = text.split(/\s+–\s+/);
-        const positions = [...new Set(rawPositions.match(/\b(FB|WG|CE|FE|HB|PR|HK|SR|LK)\b/g) || [])];
-        const cleanName = rawName.replace(/\s*\((c|vc)\)\s*/gi, "").trim();
-        if (!cleanName || !positions.length) return null;
-        return {
-          id: `${seed.id}-${slug(cleanName)}`,
-          name: cleanName,
-          positions,
-          squad: index < 30 ? "top30" : "supplementary"
-        };
-      }).filter(Boolean);
-    return {
-      ...seed,
-      players: players.length ? players : seed.players,
-      updated: "Live sync",
-      source: seed.source
-    };
-  });
-  return {
-    season: 2026,
-    sourcePage: window.NRL_SQUADS.sourcePage,
-    sourceLabel: window.NRL_SQUADS.sourceLabel,
-    generatedFrom: `Live sync ${new Date().toLocaleDateString()}`,
-    teams
-  };
-}
-
-function simResult(home, away) {
-  const h = teamPower(buildMatchTeam(home, false));
-  const a = teamPower(buildMatchTeam(away, false));
+function simResult(home, away, roundNo) {
+  const h = teamPower(buildMatchTeamForSim(home));
+  const a = teamPower(buildMatchTeamForSim(away));
   const spread = clamp(Math.round((h - a) / 5), -18, 18);
-  const base = 14 + (hash(home.id + away.id + state.season.round) % 18);
+  const base = 12 + (hash(`${home.id}-${away.id}-${roundNo}`) % 20);
   return {
     home: Math.max(0, base + spread + (hash(home.id) % 8)),
     away: Math.max(0, base - spread + (hash(away.id) % 8))
+  };
+}
+
+function buildMatchTeamForSim(team) {
+  const tactic = getOpponentTactic(team);
+  const lineup = autoLineupForTeam(team, tactic);
+  return { ...team, tactic, runOn: lineup.runOn, bench: lineup.bench };
+}
+
+function currentRound() {
+  return state.fixtures.rounds[state.career?.roundIndex || 0];
+}
+
+function currentTeamFixture() {
+  const teamId = state.career.teamId;
+  return currentRound().matches.find((match) => match.home === teamId || match.away === teamId);
+}
+
+function isByeWeek() {
+  return !currentTeamFixture();
+}
+
+function careerTeam() {
+  return teamById(state.career.teamId);
+}
+
+function careerRoster() {
+  return state.career.rosterIds.map(playerById).filter(Boolean);
+}
+
+function healthyRoster() {
+  return careerRoster().filter((player) => !isInjured(player));
+}
+
+function marketPlayers() {
+  const owned = new Set(state.career.rosterIds);
+  return state.players
+    .filter((player) => !owned.has(player.id))
+    .sort((a, b) => b.rating - a.rating || b.talent - a.talent);
+}
+
+function playerMatches(player, query) {
+  if (!query) return true;
+  return player.name.toLowerCase().includes(query) || player.positions.join(" ").toLowerCase().includes(query) || teamById(player.originalTeamId).name.toLowerCase().includes(query);
+}
+
+function isInjured(player) {
+  return player.injuryUntilRound > currentRound().round;
+}
+
+function getHumanTactic() {
+  return {
+    style: state.style,
+    tempo: Number(els.tempoRange?.value || 55),
+    defence: Number(els.defenceRange?.value || 58),
+    kicking: Number(els.kickingRange?.value || 52),
+    benchMinute: Number(els.benchRange?.value || 45)
+  };
+}
+
+function getOpponentTactic(team) {
+  const seed = hash(team.id);
+  return {
+    style: ["balanced", "expansive", "territory"][seed % 3],
+    tempo: 45 + (seed % 32),
+    defence: 45 + ((seed >> 2) % 34),
+    kicking: 44 + ((seed >> 4) % 38),
+    benchMinute: 35 + ((seed >> 6) % 24)
   };
 }
 
@@ -685,7 +958,7 @@ function teamPower(team) {
   const attack = teamAverage(team, "attack") + (team.tactic.style === "expansive" ? 4 : 0) + (team.tactic.tempo - 50) / 8;
   const defence = teamAverage(team, "defence") + (team.tactic.defence - 50) / 7;
   const kicking = teamAverage(team, "kicking") + (team.tactic.style === "territory" ? 4 : 0) + (team.tactic.kicking - 50) / 9;
-  const fatigue = team.runOn.reduce((total, item) => total + item.fatigue, 0) / 13;
+  const fatigue = team.runOn.reduce((total, item) => total + (item.fatigue || 0), 0) / team.runOn.length;
   return attack * 0.42 + defence * 0.37 + kicking * 0.18 - fatigue * 0.35;
 }
 
@@ -695,10 +968,6 @@ function teamPressure(attack, defend) {
 
 function teamAverage(team, stat) {
   return team.runOn.reduce((total, item) => total + item.player.stats[stat], 0) / team.runOn.length;
-}
-
-function inRedZone(side) {
-  return side === "home" ? state.territory > 78 : state.territory < 22;
 }
 
 function chooseScorer(team, rand) {
@@ -711,20 +980,25 @@ function bestKicker(team) {
   return [...team.runOn].sort((a, b) => b.player.stats.kicking - a.player.stats.kicking)[0].player;
 }
 
-function firstOpponent(id) {
-  return state.squads.teams.find((team) => team.id !== id)?.id || state.squads.teams[0].id;
+function renderCrest(el, team) {
+  el.textContent = initials(team.name);
+  el.style.background = `linear-gradient(135deg, ${team.primary}, ${team.secondary})`;
+}
+
+function updateSliderLabels() {
+  els.tempoValue.textContent = els.tempoRange.value;
+  els.defenceValue.textContent = els.defenceRange.value;
+  els.kickingValue.textContent = els.kickingRange.value;
+  els.benchValue.textContent = `${els.benchRange.value}'`;
+  els.speedValue.textContent = `${els.speedRange.value}x`;
 }
 
 function teamById(id) {
   return state.squads.teams.find((team) => team.id === id) || state.squads.teams[0];
 }
 
-function matchKey(a, b) {
-  return [a, b].sort().join(":");
-}
-
-function seededMinuteRandom(minute, a, b) {
-  return (hash(`${minute}-${a}-${b}`) % 1000) / 1000;
+function playerById(id) {
+  return state.players.find((player) => player.id === id);
 }
 
 function hash(value) {
@@ -734,6 +1008,10 @@ function hash(value) {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
+}
+
+function seededRandom(seed) {
+  return (hash(seed) % 1000) / 1000;
 }
 
 function initials(name) {
@@ -750,8 +1028,13 @@ function initials(name) {
     .toUpperCase();
 }
 
-function slug(value) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+function money(value) {
+  if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}m`;
+  return `$${Math.round(value / 1000)}k`;
+}
+
+function roundMoney(value) {
+  return Math.round(value / 10000) * 10000;
 }
 
 function escapeHtml(value) {

@@ -11,21 +11,35 @@
     <div class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">2026 squads</p>
+          <p class="eyebrow" id="careerEyebrow">2026 career</p>
           <h1>NRL Touchline Manager</h1>
         </div>
-        <div class="source-pill" id="sourcePill">Loading squads...</div>
+        <div class="top-metrics">
+          <div class="metric">
+            <span>Budget</span>
+            <strong id="budgetText">$0</strong>
+          </div>
+          <div class="metric">
+            <span>Round</span>
+            <strong id="roundText">1</strong>
+          </div>
+          <button id="newCareerButton" class="small-button" type="button">New Career</button>
+        </div>
       </header>
 
       <main class="layout">
         <aside class="manager-panel" aria-label="Manager controls">
           <section class="panel-section">
             <div class="section-title">
-              <span>Club</span>
-              <button class="icon-button" id="syncButton" title="Sync latest roster data" type="button">↻</button>
+              <span>Week</span>
+              <span id="phasePill" class="rating-pill">Prep</span>
             </div>
-            <select id="teamSelect" aria-label="Managed club"></select>
-            <select id="opponentSelect" aria-label="Opponent club"></select>
+            <div class="fixture-card" id="fixtureCard"></div>
+            <div class="phase-buttons">
+              <button class="active" data-phase="prep" type="button">Prep</button>
+              <button data-phase="pregame" type="button">Pregame</button>
+              <button data-phase="match" type="button">Game</button>
+            </div>
           </section>
 
           <section class="panel-section">
@@ -61,119 +75,164 @@
 
           <section class="panel-section">
             <div class="section-title">
-              <span>Controls</span>
-            </div>
-            <div class="button-row">
-              <button id="startButton" type="button">Start</button>
-              <button id="pauseButton" type="button">Pause</button>
-              <button id="resetButton" type="button">Reset</button>
-            </div>
-            <label class="slider-row compact">
-              <span>Speed</span>
-              <input id="speedRange" type="range" min="1" max="5" value="2">
-              <strong id="speedValue">2x</strong>
-            </label>
-          </section>
-
-          <section class="panel-section">
-            <div class="section-title">
-              <span>Season</span>
-              <button id="simRoundButton" class="small-button" type="button">Sim Round</button>
+              <span>Season Ladder</span>
             </div>
             <div id="ladder" class="ladder"></div>
           </section>
         </aside>
 
-        <section class="match-area">
-          <div class="scoreboard">
-            <div class="score-team home">
-              <div class="crest" id="homeCrest"></div>
+        <section class="workspace">
+          <section id="prepView" class="stage-view active">
+            <div class="stage-header">
               <div>
-                <span id="homeName">Home</span>
-                <strong id="homeScore">0</strong>
+                <p class="eyebrow">Prep</p>
+                <h2>Roster, money, market</h2>
               </div>
+              <button id="toPregameButton" type="button">Go To Pregame</button>
             </div>
-            <div class="clock">
-              <strong id="matchClock">0'</strong>
-              <span id="matchStatus">Ready</span>
-            </div>
-            <div class="score-team away">
-              <div>
-                <span id="awayName">Away</span>
-                <strong id="awayScore">0</strong>
-              </div>
-              <div class="crest" id="awayCrest"></div>
-            </div>
-          </div>
-
-          <div class="pitch-wrap">
-            <div class="pitch" id="pitch" aria-label="Animated match pitch">
-              <div class="tryline left"></div>
-              <div class="tryline right"></div>
-              <div class="halfway"></div>
-              <div class="twenty left"></div>
-              <div class="twenty right"></div>
-              <div class="ten left"></div>
-              <div class="ten right"></div>
-              <div class="ball" id="ball"></div>
-              <div id="playersLayer"></div>
-            </div>
-          </div>
-
-          <div class="match-grid">
-            <section class="tool-panel">
-              <div class="section-title">
-                <span>Live Read</span>
-              </div>
-              <div class="momentum">
-                <span id="homeMomentum">50</span>
-                <div class="momentum-track">
-                  <div id="momentumBar"></div>
+            <div class="prep-grid">
+              <section class="tool-panel">
+                <div class="section-title">
+                  <span>Your Squad</span>
+                  <span id="squadCountText">0 players</span>
                 </div>
-                <span id="awayMomentum">50</span>
-              </div>
-              <div id="statsGrid" class="stats-grid"></div>
-            </section>
+                <input id="squadSearch" type="search" placeholder="Search squad">
+                <div id="squadList" class="player-list"></div>
+              </section>
+              <section class="tool-panel">
+                <div class="section-title">
+                  <span>Transfer Market</span>
+                  <span id="marketCountText">0 available</span>
+                </div>
+                <input id="marketSearch" type="search" placeholder="Search market">
+                <div id="marketList" class="player-list"></div>
+              </section>
+            </div>
+          </section>
 
-            <section class="tool-panel">
-              <div class="section-title">
-                <span>Commentary</span>
+          <section id="pregameView" class="stage-view">
+            <div class="stage-header">
+              <div>
+                <p class="eyebrow">Pregame</p>
+                <h2>Pick positions and bench</h2>
               </div>
-              <ol id="commentary" class="commentary"></ol>
-            </section>
-          </div>
+              <div class="stage-actions">
+                <button id="autoLineupButton" type="button">Auto Pick</button>
+                <button id="toMatchButton" type="button">Start Game</button>
+              </div>
+            </div>
+            <div id="injuryReport" class="notice"></div>
+            <div id="lineupEditor" class="lineup-editor"></div>
+          </section>
+
+          <section id="matchView" class="stage-view">
+            <div class="scoreboard">
+              <div class="score-team home">
+                <div class="crest" id="homeCrest"></div>
+                <div>
+                  <span id="homeName">Home</span>
+                  <strong id="homeScore">0</strong>
+                </div>
+              </div>
+              <div class="clock">
+                <strong id="matchClock">0'</strong>
+                <span id="matchStatus">Ready</span>
+              </div>
+              <div class="score-team away">
+                <div>
+                  <span id="awayName">Away</span>
+                  <strong id="awayScore">0</strong>
+                </div>
+                <div class="crest" id="awayCrest"></div>
+              </div>
+            </div>
+
+            <div class="pitch-wrap">
+              <div class="pitch" id="pitch" aria-label="Animated match pitch">
+                <div class="tryline left"></div>
+                <div class="tryline right"></div>
+                <div class="halfway"></div>
+                <div class="twenty left"></div>
+                <div class="twenty right"></div>
+                <div class="ten left"></div>
+                <div class="ten right"></div>
+                <div class="ball" id="ball"></div>
+                <div id="playersLayer"></div>
+              </div>
+            </div>
+
+            <div class="match-actions">
+              <button id="startButton" type="button">Start</button>
+              <button id="pauseButton" type="button">Pause</button>
+              <button id="resetButton" type="button">Reset</button>
+              <button id="continueButton" type="button">Next Round</button>
+              <label class="slider-row compact">
+                <span>Speed</span>
+                <input id="speedRange" type="range" min="1" max="5" value="2">
+                <strong id="speedValue">2x</strong>
+              </label>
+            </div>
+
+            <div class="match-grid">
+              <section class="tool-panel">
+                <div class="section-title">
+                  <span>Live Read</span>
+                </div>
+                <div class="momentum">
+                  <span id="homeMomentum">50</span>
+                  <div class="momentum-track">
+                    <div id="momentumBar"></div>
+                  </div>
+                  <span id="awayMomentum">50</span>
+                </div>
+                <div id="statsGrid" class="stats-grid"></div>
+              </section>
+
+              <section class="tool-panel">
+                <div class="section-title">
+                  <span>Commentary</span>
+                </div>
+                <ol id="commentary" class="commentary"></ol>
+              </section>
+            </div>
+          </section>
         </section>
 
-        <aside class="squad-panel" aria-label="Squad and lineup">
+        <aside class="squad-panel" aria-label="Club status">
           <section class="tool-panel">
             <div class="section-title">
-              <span>Run-On 13</span>
+              <span>Club</span>
               <span id="teamRating" class="rating-pill">--</span>
             </div>
-            <div id="lineupList" class="lineup-list"></div>
+            <div id="clubCard" class="club-card"></div>
           </section>
           <section class="tool-panel">
             <div class="section-title">
-              <span>Bench</span>
+              <span>Selected 17</span>
             </div>
-            <div id="benchList" class="lineup-list bench-list"></div>
+            <div id="selectedList" class="lineup-list"></div>
           </section>
           <section class="tool-panel grow">
             <div class="section-title">
-              <span>Squad Browser</span>
-              <input id="squadSearch" type="search" placeholder="Search players">
+              <span>Source</span>
             </div>
-            <div id="squadList" class="squad-list"></div>
+            <p class="source-copy" id="sourcePill">Loading data...</p>
           </section>
         </aside>
       </main>
+    </div>
 
-      <footer class="footer-note">
-        Rosters are seeded from public 2026 squad listings and can sync from Wikipedia in-browser. Player ratings are generated for game balance.
-      </footer>
+    <div id="careerModal" class="career-modal" role="dialog" aria-modal="true" aria-labelledby="careerTitle">
+      <div class="career-dialog">
+        <p class="eyebrow">New career</p>
+        <h2 id="careerTitle">Pick the NRL club you manage</h2>
+        <div id="careerTeamGrid" class="career-team-grid"></div>
+        <button id="beginCareerButton" type="button">Begin Career</button>
+      </div>
     </div>
 
     <script src="data/squads.js"></script>
+    <script src="data/fixtures.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
