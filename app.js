@@ -144,7 +144,7 @@ function cacheElements() {
     "autoLineupButton", "toMatchButton", "injuryReport", "lineupEditor",
     "homeCrest", "awayCrest", "homeName", "awayName", "homeScore",
     "awayScore", "matchClock", "matchStatus", "ball", "playersLayer",
-    "startButton", "pauseButton", "resetButton", "continueButton",
+    "startButton", "pauseButton", "continueButton",
     "homeMomentum", "awayMomentum", "momentumBar", "statsGrid",
     "commentary", "squadSearch", "marketSearch", "squadList",
     "marketList", "squadCountText", "marketCountText", "ladder",
@@ -217,11 +217,6 @@ function bindEvents() {
 
   els.startButton.addEventListener("click", startMatch);
   els.pauseButton.addEventListener("click", pauseMatch);
-  els.resetButton.addEventListener("click", () => {
-    pauseMatch();
-    resetMatch();
-    renderAll();
-  });
   els.continueButton.addEventListener("click", continueAfterMatch);
   els.squadSearch.addEventListener("input", renderPrep);
   els.marketSearch.addEventListener("input", renderPrep);
