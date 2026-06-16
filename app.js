@@ -23,6 +23,66 @@ const BENCH = [
   ["17", ["LK", "SR", "PR"]]
 ];
 
+const STRATEGY_CARDS = [
+  {
+    id: "forward-dominance",
+    name: "Forward Dominance",
+    desc: "+Defence, +Metres",
+    modifiers: { defence: 3, metres: 0.08 }
+  },
+  {
+    id: "edge-attack",
+    name: "Edge Attack",
+    desc: "+Wide tries",
+    modifiers: { wideAttack: 0.12 }
+  },
+  {
+    id: "territory-grind",
+    name: "Territory Grind",
+    desc: "+Kicking game",
+    modifiers: { kicking: 4, possession: -0.05 }
+  },
+  {
+    id: "fast-tempo",
+    name: "Fast Tempo",
+    desc: "-Fatigue risk",
+    modifiers: { tempo: 8, fatigue: 0.12 }
+  },
+  {
+    id: "defensive-wall",
+    name: "Defensive Wall",
+    desc: "+Line speed",
+    modifiers: { defence: 5, attack: -2 }
+  },
+  {
+    id: "offload-game",
+    name: "Offload Game",
+    desc: "+Line breaks",
+    modifiers: { attack: 4, errors: 0.08 }
+  }
+];
+
+const LIVE_CALLS = [
+  {
+    id: "go-for-corner",
+    name: "Go for Corner",
+    desc: "Pin them deep",
+    modifiers: { territory: -12, kicking: 6 }
+  },
+  {
+    id: "crash-bash",
+    name: "Crash & Bash",
+    desc: "Direct attack",
+    modifiers: { attack: 5, possession: 0.04 }
+  },
+  {
+    id: "high-line",
+    name: "High Line Speed",
+    desc: "Press up fast",
+    modifiers: { defence: 4, errors: 0.06 }
+  }
+];
+
 const ALL_SLOTS = [
   ...RUN_ON.map(([jersey, role]) => ({ jersey, role, bench: false })),
   ...BENCH.map(([jersey, roles]) => ({ jersey, role: roles[0], roles, bench: true }))
@@ -45,7 +105,11 @@ const state = {
   territory: 50,
   match: null,
   ladder: null,
-  injuriesCheckedRound: null
+  injuriesCheckedRound: null,
+  purchasesThisRound: 0,
+  marketSeed: null,
+  strategyCards: [],
+  activeLiveCall: null
 };
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -73,7 +137,8 @@ function cacheElements() {
     "commentary", "squadSearch", "marketSearch", "squadList",
     "marketList", "squadCountText", "marketCountText", "ladder",
     "teamRating", "clubCard", "selectedList", "sourcePill",
-    "careerModal", "careerTeamGrid", "beginCareerButton"
+    "careerModal", "careerTeamGrid", "beginCareerButton", "strategyCards",
+    "strategyCountText", "liveCallsArea"
   ]) {
     els[id] = document.getElementById(id);
   }
@@ -353,9 +418,14 @@ function bindMarketButtons() {
 function recruitPlayer(playerId) {
   const player = playerById(playerId);
   if (!player || state.career.rosterIds.includes(playerId) || state.career.budget < player.value) return;
+  if (state.purchasesThisRound >= 2) {
+    alert("Transfer limit: max 2 purchases per round");
+    return;
+  }
   state.career.budget -= player.value;
   player.currentTeamId = state.career.teamId;
   state.career.rosterIds.push(playerId);
+  state.purchasesThisRound += 1;
   renderAll();
 }
 
@@ -392,6 +462,21 @@ function renderPregame() {
   els.injuryReport.innerHTML = (state.career.injuryLog.length ? state.career.injuryLog : ["Run the prep stage to check injuries."])
     .map((item) => `<span>${escapeHtml(item)}</span>`)
     .join("");
+
+  els.strategyCountText.textContent = `${state.strategyCards.length} selected`;
+  els.strategyCards.innerHTML = STRATEGY_CARDS.map((card) => {
+    const isSelected = state.strategyCards.includes(card.id);
+    return `
+      <button class="strategy-card ${isSelected ? "selected" : ""}" data-card="${card.id}" type="button">
+        <strong>${card.name}</strong>
+        <span>${card.desc}</span>
+      </button>
+    `;
+  }).join("");
+  els.strategyCards.querySelectorAll(".strategy-card").forEach((button) => {
+    button.addEventListener("click", () => toggleStrategyCard(button.dataset.card));
+  });
+
   els.lineupEditor.innerHTML = ALL_SLOTS.map((slot, index) => {
     const selected = state.career.lineup[index]?.playerId || "";
     const options = healthyRoster()
@@ -431,6 +516,16 @@ function autoPickLineup() {
   });
 }
 
+function toggleStrategyCard(cardId) {
+  const index = state.strategyCards.indexOf(cardId);
+  if (index >= 0) {
+    state.strategyCards.splice(index, 1);
+  } else {
+    state.strategyCards.push(cardId);
+  }
+  renderPregame();
+}
+
 function lineupIsValid() {
   const picked = state.career.lineup.map((slot) => slot.playerId).filter(Boolean);
   return picked.length === 17 && new Set(picked).size === 17;
@@ -448,6 +543,7 @@ function renderMatch() {
   renderCrest(els.awayCrest, away);
   renderPitch();
   renderMatchRead();
+  renderLiveCalls();
   els.continueButton.disabled = state.minute < 80;
 }
 
@@ -468,7 +564,8 @@ function resetMatch() {
     score: { home: 0, away: 0 },
     stats: { home: blankStats(), away: blankStats() },
     events: [{ minute: 0, text: `${homeTeam.shortName} and ${awayTeam.shortName} are set.` }],
-    finished: false
+    finished: false,
+    usedCalls: {}
   };
   els.matchStatus.textContent = "Ready";
 }
@@ -579,23 +676,29 @@ function playMinute() {
   const defendKey = attackKey === "home" ? "away" : "home";
   const attack = state.match[attackKey];
   const defend = state.match[defendKey];
-  const pressure = teamPressure(attack, defend);
+  const attackMods = getStrategyModifiers(attack);
+  const defendMods = getStrategyModifiers(defend);
+
+  const pressure = teamPressure(attack, defend, defendMods);
   const rand = seededRandom(`${state.minute}-${attack.id}-${defend.id}`);
-  const carry = 5 + Math.round((pressure - 50) / 12) + Math.round((attack.tactic.tempo - 50) / 20);
-  state.territory = clamp(state.territory + carry, 5, 95);
+  const carry = 5 + Math.round((pressure - 50) / 12) + Math.round(((attack.tactic.tempo + attackMods.tempo) - 50) / 20);
+  state.territory = clamp(state.territory + carry + (attackMods.territory || 0), 5, 95);
   state.ball.x = attackKey === "home" ? state.territory : 100 - state.territory;
   state.ball.y = clamp(48 + (rand - 0.5) * 36, 18, 82);
-  state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * 35));
-  state.match.stats[defendKey].tackles += 5 + Math.floor(rand * 4);
+  state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * (35 + (attackMods.metres || 0) * 100)));
+  state.match.stats[defendKey].tackles += Math.round((5 + Math.floor(rand * 4)) * (1 + defendMods.defence * 0.02));
 
   const eventRoll = rand * 100 + pressure * 0.12;
-  if (eventRoll > 96 && state.territory > 78) {
+  const errorMod = (attack.tactic.tempo - 50) / 8 + (attackMods.errors || 0) * 20;
+  const tryMod = (attackMods.wideAttack || 0) * 0.8;
+
+  if (eventRoll > 96 + tryMod && state.territory > 78) {
     scoreTry(attackKey, attack, pressure, rand);
   } else if (eventRoll > 88 && state.minute > 8) {
     lineBreak(attackKey, attack);
-  } else if (eventRoll < 10 + (attack.tactic.tempo - 50) / 8) {
+  } else if (eventRoll < 10 + errorMod) {
     errorEvent(attackKey, defendKey, attack);
-  } else if (eventRoll > 78 && attack.tactic.kicking > 58 && state.minute > 20) {
+  } else if (eventRoll > 78 && (attack.tactic.kicking + attackMods.kicking) > 58 && state.minute > 20) {
     kickEvent(attackKey, defendKey, attack);
   } else if (state.minute % 6 === 0) {
     setRestartEvent(attackKey, attack);
@@ -702,6 +805,10 @@ function nextRound() {
   state.match = null;
   state.minute = 0;
   state.ball = { x: 50, y: 50 };
+  state.purchasesThisRound = 0;
+  state.marketSeed = null;
+  state.strategyCards = [];
+  state.activeLiveCall = null;
   recoverInjuries();
   setPhase("prep");
 }
@@ -764,7 +871,15 @@ function tacticalSpot(index, side) {
   const x = attacking ? ballX + direction * attackOffsets[index] : defenceLine + direction * Math.min(index % 5, 2);
   const spread = attacking ? (lane - 50) * 0.84 : (lane - 50) * 0.94;
   const y = ballY + spread;
-  return { x: clamp(x, 6, 94), y: clamp(y, 9, 91) };
+
+  const drift = seededRandom(`drift-${side}-${index}-${Math.floor(state.minute / 2)}`);
+  const driftX = (drift - 0.5) * 3.5;
+  const driftY = (seededRandom(`drift-y-${side}-${index}-${state.minute}`) - 0.5) * 4.2;
+
+  return {
+    x: clamp(x + driftX, 6, 94),
+    y: clamp(y + driftY, 9, 91)
+  };
 }
 
 function playerDot(item, team, x, y, extraClass) {
@@ -914,10 +1029,29 @@ function healthyRoster() {
 }
 
 function marketPlayers() {
+  if (!state.marketSeed) {
+    state.marketSeed = seededRandom(`market-${state.career.roundIndex}`);
+  }
   const owned = new Set(state.career.rosterIds);
-  return state.players
-    .filter((player) => !owned.has(player.id))
-    .sort((a, b) => b.rating - a.rating || b.talent - a.talent);
+  const available = state.players.filter((player) => !owned.has(player.id));
+
+  const weighted = available.map((player) => {
+    const rarity = Math.pow((player.rating - 48) / 48, 3.5);
+    const chance = Math.pow(1 - rarity, 2);
+    return { player, chance };
+  });
+
+  const selected = [];
+  const sorted = weighted.sort(() => 0.5 - seededRandom(`${state.marketSeed}-sort-${selected.length}`));
+
+  for (let i = 0; i < sorted.length && selected.length < 6; i++) {
+    const roll = seededRandom(`${state.marketSeed}-roll-${i}`);
+    if (roll < sorted[i].chance) {
+      selected.push(sorted[i].player);
+    }
+  }
+
+  return selected.sort((a, b) => b.rating - a.rating || b.talent - a.talent);
 }
 
 function playerMatches(player, query) {
@@ -937,6 +1071,30 @@ function getHumanTactic() {
     kicking: Number(els.kickingRange?.value || 52),
     benchMinute: Number(els.benchRange?.value || 45)
   };
+}
+
+function getStrategyModifiers(team) {
+  if (team.id !== state.match?.managerSide) return { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0 };
+
+  const modifiers = { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0, metres: 0, wideAttack: 0, possession: 0, errors: 0, territory: 0 };
+
+  state.strategyCards.forEach((cardId) => {
+    const card = STRATEGY_CARDS.find((c) => c.id === cardId);
+    if (card) {
+      Object.assign(modifiers, card.modifiers);
+    }
+  });
+
+  if (state.match?.usedCalls) {
+    Object.keys(state.match.usedCalls).forEach((callId) => {
+      const call = LIVE_CALLS.find((c) => c.id === callId);
+      if (call) {
+        Object.assign(modifiers, call.modifiers);
+      }
+    });
+  }
+
+  return modifiers;
 }
 
 function getOpponentTactic(team) {
@@ -962,8 +1120,9 @@ function teamPower(team) {
   return attack * 0.42 + defence * 0.37 + kicking * 0.18 - fatigue * 0.35;
 }
 
-function teamPressure(attack, defend) {
-  return clamp(50 + teamPower(attack) - teamPower(defend), 15, 88);
+function teamPressure(attack, defend, defendMods) {
+  const defendPower = teamPower(defend) + (defendMods?.defence || 0) * 0.3;
+  return clamp(50 + teamPower(attack) - defendPower, 15, 88);
 }
 
 function teamAverage(team, stat) {
@@ -983,6 +1142,54 @@ function bestKicker(team) {
 function renderCrest(el, team) {
   el.textContent = initials(team.name);
   el.style.background = `linear-gradient(135deg, ${team.primary}, ${team.secondary})`;
+}
+
+function renderLiveCalls() {
+  if (!state.match || state.minute < 10) {
+    els.liveCallsArea.innerHTML = "";
+    return;
+  }
+
+  const callsUsed = Object.keys(state.match.usedCalls || {}).length;
+  const callsRemaining = 3 - callsUsed;
+
+  if (callsRemaining <= 0) {
+    els.liveCallsArea.innerHTML = `<p class="live-calls-exhausted">All tactical calls used.</p>`;
+    return;
+  }
+
+  els.liveCallsArea.innerHTML = `
+    <div class="live-calls-header">Tactical Calls (${callsRemaining} remaining)</div>
+    ${LIVE_CALLS.map((call) => {
+      const used = state.match.usedCalls?.[call.id];
+      return `
+        <button class="live-call-btn ${used ? "used" : ""}" data-call="${call.id}" type="button" ${used ? "disabled" : ""}>
+          <strong>${call.name}</strong>
+          <span>${call.desc}</span>
+        </button>
+      `;
+    }).join("")}
+  `;
+
+  els.liveCallsArea.querySelectorAll(".live-call-btn:not(.used)").forEach((button) => {
+    button.addEventListener("click", () => useLiveCall(button.dataset.call));
+  });
+}
+
+function useLiveCall(callId) {
+  if (!state.match) return;
+  if (!state.match.usedCalls) state.match.usedCalls = {};
+  if (state.match.usedCalls[callId]) return;
+
+  state.match.usedCalls[callId] = true;
+  const call = LIVE_CALLS.find((c) => c.id === callId);
+  const managerSide = state.match.managerSide;
+  state.match.events.unshift({
+    minute: state.minute,
+    text: `Coach calls: ${call.name}`
+  });
+  renderLiveCalls();
+  renderMatchRead();
 }
 
 function updateSliderLabels() {

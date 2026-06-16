@@ -122,7 +122,21 @@
               </div>
             </div>
             <div id="injuryReport" class="notice"></div>
-            <div id="lineupEditor" class="lineup-editor"></div>
+            <div class="prep-grid">
+              <section class="tool-panel">
+                <div class="section-title">
+                  <span>Game Plan</span>
+                  <span id="strategyCountText">0 selected</span>
+                </div>
+                <div id="strategyCards" class="strategy-grid"></div>
+              </section>
+              <section class="tool-panel">
+                <div class="section-title">
+                  <span>Lineup</span>
+                </div>
+                <div id="lineupEditor" class="lineup-editor"></div>
+              </section>
+            </div>
           </section>
 
           <section id="matchView" class="stage-view">
@@ -171,6 +185,7 @@
                 <input id="speedRange" type="range" min="1" max="5" value="2">
                 <strong id="speedValue">2x</strong>
               </label>
+              <div id="liveCallsArea" class="live-calls"></div>
             </div>
 
             <div class="match-grid">
