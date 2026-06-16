@@ -184,7 +184,7 @@ function bindEvents() {
     });
   });
 
-  for (const input of [els.tempoRange, els.defenceRange, els.kickingRange, els.benchRange, els.speedRange]) {
+  for (const input of [els.tempoRange, els.defenceRange, els.kickingRange, els.benchRange, els.speedRange].filter(Boolean)) {
     input.addEventListener("input", () => {
       updateSliderLabels();
       restartTimerIfNeeded();
@@ -1219,11 +1219,11 @@ function makeDecision(scenario, choiceIndex) {
 }
 
 function updateSliderLabels() {
-  els.tempoValue.textContent = els.tempoRange.value;
-  els.defenceValue.textContent = els.defenceRange.value;
-  els.kickingValue.textContent = els.kickingRange.value;
-  els.benchValue.textContent = `${els.benchRange.value}'`;
-  els.speedValue.textContent = `${els.speedRange.value}x`;
+  if (els.tempoValue && els.tempoRange) els.tempoValue.textContent = els.tempoRange.value;
+  if (els.defenceValue && els.defenceRange) els.defenceValue.textContent = els.defenceRange.value;
+  if (els.kickingValue && els.kickingRange) els.kickingValue.textContent = els.kickingRange.value;
+  if (els.benchValue && els.benchRange) els.benchValue.textContent = `${els.benchRange.value}'`;
+  if (els.speedValue && els.speedRange) els.speedValue.textContent = `${els.speedRange.value}x`;
 }
 
 function teamById(id) {
