@@ -62,39 +62,6 @@ const STRATEGY_CARDS = [
   }
 ];
 
-const DECISION_SCENARIOS = [
-  {
-    minute: 15,
-    title: "Line Break!",
-    desc: "Your forwards have broken through the line. What's the next play?",
-    choices: [
-      { name: "Spread it wide", modifiers: { attack: 6, wideAttack: 0.2 } },
-      { name: "Crash it up", modifiers: { attack: 4, metres: 0.1 } },
-      { name: "Kick for territory", modifiers: { kicking: 5, possession: -0.06 } }
-    ]
-  },
-  {
-    minute: 40,
-    title: "Possession Loss",
-    desc: "You've turned the ball over. How do you respond?",
-    choices: [
-      { name: "Tighten defence", modifiers: { defence: 5, errors: -0.08 } },
-      { name: "Aggressive press", modifiers: { defence: 4, errors: 0.08 } },
-      { name: "Regroup and reset", modifiers: { defence: 2, fatigue: -0.05 } }
-    ]
-  },
-  {
-    minute: 65,
-    title: "Momentum Shift",
-    desc: "The opposition is building pressure. What's your tactic?",
-    choices: [
-      { name: "Go for a try", modifiers: { attack: 5, errors: 0.1 } },
-      { name: "Grind them down", modifiers: { defence: 4, possession: 0.08 } },
-      { name: "Fast tempo attack", modifiers: { tempo: 8, fatigue: 0.12 } }
-    ]
-  }
-];
-
 const ALL_SLOTS = [
   ...RUN_ON.map(([jersey, role]) => ({ jersey, role, bench: false })),
   ...BENCH.map(([jersey, roles]) => ({ jersey, role: roles[0], roles, bench: true }))
@@ -120,7 +87,6 @@ const state = {
   injuriesCheckedRound: null,
   purchasesThisRound: 0,
   marketSeed: null,
-  strategyCards: [],
   triggeredDecisions: new Set()
 };
 
@@ -149,9 +115,7 @@ function cacheElements() {
     "commentary", "squadSearch", "marketSearch", "squadList",
     "marketList", "squadCountText", "marketCountText", "ladder",
     "teamRating", "clubCard", "selectedList", "sourcePill",
-    "careerModal", "careerTeamGrid", "beginCareerButton",
-    "matchPlanSection", "gameStrategyCards", "decisionModal", "decisionEyebrow", "decisionTitle",
-    "decisionText", "decisionChoices"
+    "careerModal", "careerTeamGrid", "beginCareerButton"
   ]) {
     els[id] = document.getElementById(id);
   }
@@ -211,7 +175,6 @@ function bindEvents() {
   els.toMatchButton.addEventListener("click", () => {
     if (!lineupIsValid()) return;
     resetMatch();
-    state.strategyCards = [];
     setPhase("match");
   });
 
@@ -331,11 +294,7 @@ function setPhase(phase) {
     els[id].classList.toggle("active", id === `${phase}View`);
   }
   els.phasePill.textContent = phase === "pregame" ? "Pregame" : phase === "match" ? "Game" : "Prep";
-  els.matchPlanSection.style.display = phase === "match" ? "block" : "none";
-  if (phase === "match") {
-    renderGameStrategy();
-    renderMatch();
-  }
+  renderMatch();
   renderAll();
 }
 
@@ -516,26 +475,6 @@ function autoPickLineup() {
   });
 }
 
-function toggleStrategyCard(cardId) {
-  const index = state.strategyCards.indexOf(cardId);
-  if (index >= 0) {
-    state.strategyCards.splice(index, 1);
-  } else {
-    state.strategyCards = [cardId];
-  }
-  renderPregame();
-}
-
-function toggleGameStrategy(cardId) {
-  const index = state.strategyCards.indexOf(cardId);
-  if (index >= 0) {
-    state.strategyCards.splice(index, 1);
-  } else {
-    state.strategyCards = [cardId];
-  }
-  renderGameStrategy();
-}
-
 function lineupIsValid() {
   const picked = state.career.lineup.map((slot) => slot.playerId).filter(Boolean);
   return picked.length === 17 && new Set(picked).size === 17;
@@ -646,28 +585,9 @@ function teamRating(lineup, tactic) {
   return Math.round(lineup.reduce((total, item) => total + scoreForRole(item.player, item.role, tactic), 0) / lineup.length);
 }
 
-function renderGameStrategy() {
-  els.gameStrategyCards.innerHTML = STRATEGY_CARDS.map((card) => {
-    const isSelected = state.strategyCards.includes(card.id);
-    return `
-      <button class="strategy-card ${isSelected ? "selected" : ""}" data-card="${card.id}" type="button">
-        <strong>${card.name}</strong>
-        <span>${card.desc}</span>
-      </button>
-    `;
-  }).join("");
-  els.gameStrategyCards.querySelectorAll(".strategy-card").forEach((button) => {
-    button.addEventListener("click", () => toggleGameStrategy(button.dataset.card));
-  });
-}
-
 function startMatch() {
   if (!state.match) resetMatch();
   if (state.minute >= 80) return;
-  if (!state.strategyCards.length) {
-    alert("Pick a game plan before starting");
-    return;
-  }
   state.running = true;
   els.matchStatus.textContent = "Live";
   restartTimerIfNeeded();
@@ -696,7 +616,6 @@ function tickMatch() {
   fatigueTick(state.match.away);
   autoInterchange(state.match.home);
   autoInterchange(state.match.away);
-  checkDecisionMoment();
   playMinute();
   renderAll();
 }
@@ -838,7 +757,6 @@ function nextRound() {
   state.ball = { x: 50, y: 50 };
   state.purchasesThisRound = 0;
   state.marketSeed = null;
-  state.strategyCards = [];
   state.triggeredDecisions = new Set();
   recoverInjuries();
   setPhase("prep");
@@ -1107,27 +1025,7 @@ function getHumanTactic() {
 }
 
 function getStrategyModifiers(team) {
-  if (team.id !== state.match?.managerSide) return { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0 };
-
-  const modifiers = { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0, metres: 0, wideAttack: 0, possession: 0, errors: 0, territory: 0 };
-
-  state.strategyCards.forEach((cardId) => {
-    const card = STRATEGY_CARDS.find((c) => c.id === cardId);
-    if (card) {
-      Object.assign(modifiers, card.modifiers);
-    }
-  });
-
-  if (state.match?.usedCalls) {
-    Object.keys(state.match.usedCalls).forEach((callId) => {
-      const call = LIVE_CALLS.find((c) => c.id === callId);
-      if (call) {
-        Object.assign(modifiers, call.modifiers);
-      }
-    });
-  }
-
-  return modifiers;
+  return { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0, metres: 0, wideAttack: 0, possession: 0, errors: 0, territory: 0 };
 }
 
 function getOpponentTactic(team) {
@@ -1175,42 +1073,6 @@ function bestKicker(team) {
 function renderCrest(el, team) {
   el.textContent = initials(team.name);
   el.style.background = `linear-gradient(135deg, ${team.primary}, ${team.secondary})`;
-}
-
-function checkDecisionMoment() {
-  if (!state.match || state.match.managerSide !== "home") return;
-  const scenario = DECISION_SCENARIOS.find((s) => s.minute === state.minute);
-  if (!scenario || state.triggeredDecisions.has(scenario.minute)) return;
-
-  state.triggeredDecisions.add(scenario.minute);
-  pauseMatch();
-  showDecision(scenario);
-}
-
-function showDecision(scenario) {
-  els.decisionEyebrow.textContent = `${scenario.minute}'`;
-  els.decisionTitle.textContent = scenario.title;
-  els.decisionText.textContent = scenario.desc;
-  els.decisionChoices.innerHTML = scenario.choices.map((choice, index) => `
-    <button class="decision-choice" data-index="${index}" type="button">
-      ${choice.name}
-    </button>
-  `).join("");
-  els.decisionModal.classList.remove("hidden");
-  els.decisionChoices.querySelectorAll(".decision-choice").forEach((button) => {
-    button.addEventListener("click", () => makeDecision(scenario, Number(button.dataset.index)));
-  });
-}
-
-function makeDecision(scenario, choiceIndex) {
-  const choice = scenario.choices[choiceIndex];
-  Object.assign(state.match.decisionModifiers, choice.modifiers);
-  state.match.events.unshift({
-    minute: state.minute,
-    text: `Coach decision: ${choice.name}`
-  });
-  els.decisionModal.classList.add("hidden");
-  startMatch();
 }
 
 function updateSliderLabels() {
