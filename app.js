@@ -683,7 +683,7 @@ function pauseMatch() {
 function restartTimerIfNeeded() {
   if (!state.running) return;
   clearInterval(state.timer);
-  state.timer = setInterval(tickMatch, Math.max(70, 400 - Number(els.speedRange.value) * 60));
+  state.timer = setInterval(tickMatch, Math.max(140, (400 - Number(els.speedRange.value) * 60) * 2));
 }
 
 function tickMatch() {
