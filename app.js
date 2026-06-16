@@ -893,7 +893,7 @@ function renderPitch() {
 
 function tacticalSpot(index, side) {
   const attacking = state.possession === side;
-  const direction = side === "home" ? 1 : -1;
+  const direction = side === "home" ? -1 : 1;
   const ballX = state.ball.x;
   const ballY = state.ball.y;
   const lane = [50, 22, 36, 64, 78, 42, 58, 45, 52, 59, 37, 67, 50][index];
