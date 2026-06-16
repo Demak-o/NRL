@@ -337,7 +337,10 @@ function setPhase(phase) {
   }
   els.phasePill.textContent = phase === "pregame" ? "Pregame" : phase === "match" ? "Game" : "Prep";
   els.matchPlanSection.style.display = phase === "match" ? "block" : "none";
-  if (phase === "match") renderGameStrategy();
+  if (phase === "match") {
+    renderGameStrategy();
+    renderMatch();
+  }
   renderAll();
 }
 
@@ -917,19 +920,10 @@ function tacticalSpot(index, side) {
 
 function playerDot(item, team, x, y, extraClass) {
   const bg = extraClass ? team.secondary : team.primary;
-  const brightness = getBrightness(bg);
-  const textColor = brightness > 128 ? "#1a1a1a" : "#ffffff";
-  const borderColor = brightness > 128 ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.9)";
+  const textColor = "#ffffff";
+  const borderColor = extraClass ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.9)";
   const shadow = extraClass ? "0 4px 10px rgba(0,0,0,0.3)" : "0 6px 14px rgba(0,0,0,0.5)";
   return `<div class="player-dot ${extraClass}" title="${escapeHtml(item.player.name)}" style="left:${x}%;top:${y}%;background:${bg};color:${textColor};border-color:${borderColor};box-shadow:${shadow}">${item.jersey}</div>`;
-}
-
-function getBrightness(hexColor) {
-  const hex = hexColor.replace("#", "");
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000;
 }
 
 function renderMatchRead() {
