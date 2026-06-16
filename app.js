@@ -149,9 +149,8 @@ function cacheElements() {
     "commentary", "squadSearch", "marketSearch", "squadList",
     "marketList", "squadCountText", "marketCountText", "ladder",
     "teamRating", "clubCard", "selectedList", "sourcePill",
-    "careerModal", "careerTeamGrid", "beginCareerButton", "strategyCards",
-    "strategyCountText", "liveCallsArea", "matchPlanSection", "prepPlanSection",
-    "gameStrategyCards", "decisionModal", "decisionEyebrow", "decisionTitle",
+    "careerModal", "careerTeamGrid", "beginCareerButton",
+    "matchPlanSection", "gameStrategyCards", "decisionModal", "decisionEyebrow", "decisionTitle",
     "decisionText", "decisionChoices"
   ]) {
     els[id] = document.getElementById(id);
@@ -338,7 +337,6 @@ function setPhase(phase) {
   }
   els.phasePill.textContent = phase === "pregame" ? "Pregame" : phase === "match" ? "Game" : "Prep";
   els.matchPlanSection.style.display = phase === "match" ? "block" : "none";
-  els.prepPlanSection.style.display = phase === "match" ? "none" : "block";
   if (phase === "match") renderGameStrategy();
   renderAll();
 }
@@ -480,20 +478,6 @@ function renderPregame() {
   els.injuryReport.innerHTML = (state.career.injuryLog.length ? state.career.injuryLog : ["Run the prep stage to check injuries."])
     .map((item) => `<span>${escapeHtml(item)}</span>`)
     .join("");
-
-  els.strategyCountText.textContent = `${state.strategyCards.length}/1 pick`;
-  els.strategyCards.innerHTML = STRATEGY_CARDS.map((card) => {
-    const isSelected = state.strategyCards.includes(card.id);
-    return `
-      <button class="strategy-card ${isSelected ? "selected" : ""}" data-card="${card.id}" type="button">
-        <strong>${card.name}</strong>
-        <span>${card.desc}</span>
-      </button>
-    `;
-  }).join("");
-  els.strategyCards.querySelectorAll(".strategy-card").forEach((button) => {
-    button.addEventListener("click", () => toggleStrategyCard(button.dataset.card));
-  });
 
   els.lineupEditor.innerHTML = ALL_SLOTS.map((slot, index) => {
     const selected = state.career.lineup[index]?.playerId || "";
@@ -732,7 +716,7 @@ function playMinute() {
   const rand = seededRandom(`${state.minute}-${attack.id}-${defend.id}`);
   const carry = 5 + Math.round((pressure - 50) / 12) + Math.round(((attack.tactic.tempo + attackMods.tempo + decisionMods.tempo) - 50) / 20);
   state.territory = clamp(state.territory + carry + (attackMods.territory || 0) + (decisionMods.territory || 0), 5, 95);
-  state.ball.x = attackKey === "home" ? state.territory : 100 - state.territory;
+  state.ball.x = attackKey === "home" ? clamp(state.territory + (rand - 0.5) * 2, 8, 92) : clamp(100 - state.territory + (rand - 0.5) * 2, 8, 92);
   state.ball.y = clamp(48 + (rand - 0.5) * 36, 18, 82);
   state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * (35 + ((attackMods.metres || 0) + (decisionMods.metres || 0)) * 100)));
   state.match.stats[defendKey].tackles += Math.round((5 + Math.floor(rand * 4)) * (1 + (defendMods.defence + decisionMods.defence) * 0.02));
@@ -933,10 +917,19 @@ function tacticalSpot(index, side) {
 
 function playerDot(item, team, x, y, extraClass) {
   const bg = extraClass ? team.secondary : team.primary;
-  const textColor = extraClass ? "#ffffff" : "#ffffff";
-  const borderColor = extraClass ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.9)";
+  const brightness = getBrightness(bg);
+  const textColor = brightness > 128 ? "#1a1a1a" : "#ffffff";
+  const borderColor = brightness > 128 ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.9)";
   const shadow = extraClass ? "0 4px 10px rgba(0,0,0,0.3)" : "0 6px 14px rgba(0,0,0,0.5)";
   return `<div class="player-dot ${extraClass}" title="${escapeHtml(item.player.name)}" style="left:${x}%;top:${y}%;background:${bg};color:${textColor};border-color:${borderColor};box-shadow:${shadow}">${item.jersey}</div>`;
+}
+
+function getBrightness(hexColor) {
+  const hex = hexColor.replace("#", "");
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000;
 }
 
 function renderMatchRead() {
@@ -1214,7 +1207,7 @@ function showDecision(scenario) {
       ${choice.name}
     </button>
   `).join("");
-  els.decisionModal.style.display = "grid";
+  els.decisionModal.classList.remove("hidden");
   els.decisionChoices.querySelectorAll(".decision-choice").forEach((button) => {
     button.addEventListener("click", () => makeDecision(scenario, Number(button.dataset.index)));
   });
@@ -1227,7 +1220,7 @@ function makeDecision(scenario, choiceIndex) {
     minute: state.minute,
     text: `Coach decision: ${choice.name}`
   });
-  els.decisionModal.style.display = "none";
+  els.decisionModal.classList.add("hidden");
   startMatch();
 }
 

@@ -49,37 +49,6 @@
             <div id="gameStrategyCards" class="game-strategy-grid"></div>
           </section>
 
-          <section id="prepPlanSection" class="panel-section">
-            <div class="section-title">
-              <span>Match Plan</span>
-            </div>
-            <div class="segmented" role="group" aria-label="Style">
-              <button class="active" data-style="balanced" type="button">Balanced</button>
-              <button data-style="expansive" type="button">Wide</button>
-              <button data-style="territory" type="button">Territory</button>
-            </div>
-            <label class="slider-row">
-              <span>Tempo</span>
-              <input id="tempoRange" type="range" min="0" max="100" value="55">
-              <strong id="tempoValue">55</strong>
-            </label>
-            <label class="slider-row">
-              <span>Line speed</span>
-              <input id="defenceRange" type="range" min="0" max="100" value="58">
-              <strong id="defenceValue">58</strong>
-            </label>
-            <label class="slider-row">
-              <span>Kicking</span>
-              <input id="kickingRange" type="range" min="0" max="100" value="52">
-              <strong id="kickingValue">52</strong>
-            </label>
-            <label class="slider-row">
-              <span>Bench</span>
-              <input id="benchRange" type="range" min="25" max="70" value="45">
-              <strong id="benchValue">45'</strong>
-            </label>
-          </section>
-
           <section class="panel-section">
             <div class="section-title">
               <span>Season Ladder</span>
@@ -253,7 +222,7 @@
       </div>
     </div>
 
-    <div id="decisionModal" class="career-modal" role="dialog" aria-modal="true" aria-labelledby="decisionTitle" style="display:none">
+    <div id="decisionModal" class="career-modal hidden" role="dialog" aria-modal="true" aria-labelledby="decisionTitle">
       <div class="decision-dialog">
         <p class="eyebrow" id="decisionEyebrow">60'</p>
         <h2 id="decisionTitle">Opportunity</h2>
