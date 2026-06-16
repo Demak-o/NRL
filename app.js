@@ -87,6 +87,7 @@ const state = {
   injuriesCheckedRound: null,
   purchasesThisRound: 0,
   marketSeed: null,
+  careerSeed: null,
   triggeredDecisions: new Set()
 };
 
@@ -265,6 +266,7 @@ function startCareer(teamId) {
   const initialRoster = state.players.filter((player) => player.originalTeamId === teamId).map((player) => player.id);
   state.career = {
     teamId,
+    seed: `${teamId}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
     budget: 3000000,
     roundIndex: 0,
     rosterIds: initialRoster,
@@ -420,9 +422,9 @@ function runInjuryCheck() {
   careerRoster().forEach((player) => {
     if (isInjured(player)) return;
     const risk = 0.018 + (78 - player.stats.fitness) / 1800;
-    const roll = seededRandom(`${roundNo}-${player.id}-injury`);
+    const roll = seededRandom(`${state.career.seed}-r${roundNo}-${player.id}-injury`);
     if (roll < risk) {
-      const weeks = 1 + Math.floor(seededRandom(`${player.id}-${roundNo}-weeks`) * 4);
+      const weeks = 1 + Math.floor(seededRandom(`${state.career.seed}-${player.id}-${roundNo}-weeks`) * 4);
       player.injuryUntilRound = roundNo + weeks;
       log.push(`${player.name}: ${weeks} week${weeks > 1 ? "s" : ""}`);
     }
@@ -438,7 +440,9 @@ function renderPregame() {
 
   els.lineupEditor.innerHTML = ALL_SLOTS.map((slot, index) => {
     const selected = state.career.lineup[index]?.playerId || "";
+    const takenElsewhere = new Set(state.career.lineup.map((s, i) => i === index ? "" : s?.playerId).filter(Boolean));
     const options = healthyRoster()
+      .filter((player) => !takenElsewhere.has(player.id) || player.id === selected)
       .sort((a, b) => scoreForRole(b, slot.role, getHumanTactic()) - scoreForRole(a, slot.role, getHumanTactic()))
       .map((player) => `<option value="${player.id}" ${player.id === selected ? "selected" : ""}>${player.name} • ${player.positions.join("/")}</option>`)
       .join("");
@@ -460,6 +464,7 @@ function renderPregame() {
         ...ALL_SLOTS[index],
         playerId: select.value
       };
+      renderPregame();
       renderSelectedList();
     });
   });
@@ -476,7 +481,7 @@ function autoPickLineup() {
 }
 
 function lineupIsValid() {
-  const picked = state.career.lineup.map((slot) => slot.playerId).filter(Boolean);
+  const picked = state.career.lineup.map((slot) => slot?.playerId).filter(Boolean);
   return picked.length === 17 && new Set(picked).size === 17;
 }
 
@@ -941,10 +946,10 @@ function simResult(home, away, roundNo) {
   const h = teamPower(buildMatchTeamForSim(home));
   const a = teamPower(buildMatchTeamForSim(away));
   const spread = clamp(Math.round((h - a) / 5), -18, 18);
-  const base = 12 + (hash(`${home.id}-${away.id}-${roundNo}`) % 20);
+  const base = 12 + (hash(`${state.career.seed}-${home.id}-${away.id}-${roundNo}`) % 20);
   return {
-    home: Math.max(0, base + spread + (hash(home.id) % 8)),
-    away: Math.max(0, base - spread + (hash(away.id) % 8))
+    home: Math.max(0, base + spread + (hash(`${state.career.seed}-${home.id}`) % 8)),
+    away: Math.max(0, base - spread + (hash(`${state.career.seed}-${away.id}`) % 8))
   };
 }
 
@@ -981,7 +986,7 @@ function healthyRoster() {
 
 function marketPlayers() {
   if (!state.marketSeed) {
-    state.marketSeed = seededRandom(`market-${state.career.roundIndex}`);
+    state.marketSeed = seededRandom(`market-${state.career.seed}-market-${state.career.roundIndex}`);
   }
   const owned = new Set(state.career.rosterIds);
   const available = state.players.filter((player) => !owned.has(player.id));
@@ -1029,7 +1034,7 @@ function getStrategyModifiers(team) {
 }
 
 function getOpponentTactic(team) {
-  const seed = hash(team.id);
+  const seed = hash(`${state.career.seed}-${team.id}`);
   return {
     style: ["balanced", "expansive", "territory"][seed % 3],
     tempo: 45 + (seed % 32),
