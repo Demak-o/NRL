@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="NRL manager-style match simulator for GitHub Pages.">
+    <title>NRL Touchline Manager</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">2026 squads</p>
+          <h1>NRL Touchline Manager</h1>
+        </div>
+        <div class="source-pill" id="sourcePill">Loading squads...</div>
+      </header>
+
+      <main class="layout">
+        <aside class="manager-panel" aria-label="Manager controls">
+          <section class="panel-section">
+            <div class="section-title">
+              <span>Club</span>
+              <button class="icon-button" id="syncButton" title="Sync latest roster data" type="button">↻</button>
+            </div>
+            <select id="teamSelect" aria-label="Managed club"></select>
+            <select id="opponentSelect" aria-label="Opponent club"></select>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span>Match Plan</span>
+            </div>
+            <div class="segmented" role="group" aria-label="Style">
+              <button class="active" data-style="balanced" type="button">Balanced</button>
+              <button data-style="expansive" type="button">Wide</button>
+              <button data-style="territory" type="button">Territory</button>
+            </div>
+            <label class="slider-row">
+              <span>Tempo</span>
+              <input id="tempoRange" type="range" min="0" max="100" value="55">
+              <strong id="tempoValue">55</strong>
+            </label>
+            <label class="slider-row">
+              <span>Line speed</span>
+              <input id="defenceRange" type="range" min="0" max="100" value="58">
+              <strong id="defenceValue">58</strong>
+            </label>
+            <label class="slider-row">
+              <span>Kicking</span>
+              <input id="kickingRange" type="range" min="0" max="100" value="52">
+              <strong id="kickingValue">52</strong>
+            </label>
+            <label class="slider-row">
+              <span>Bench</span>
+              <input id="benchRange" type="range" min="25" max="70" value="45">
+              <strong id="benchValue">45'</strong>
+            </label>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span>Controls</span>
+            </div>
+            <div class="button-row">
+              <button id="startButton" type="button">Start</button>
+              <button id="pauseButton" type="button">Pause</button>
+              <button id="resetButton" type="button">Reset</button>
+            </div>
+            <label class="slider-row compact">
+              <span>Speed</span>
+              <input id="speedRange" type="range" min="1" max="5" value="2">
+              <strong id="speedValue">2x</strong>
+            </label>
+          </section>
+
+          <section class="panel-section">
+            <div class="section-title">
+              <span>Season</span>
+              <button id="simRoundButton" class="small-button" type="button">Sim Round</button>
+            </div>
+            <div id="ladder" class="ladder"></div>
+          </section>
+        </aside>
+
+        <section class="match-area">
+          <div class="scoreboard">
+            <div class="score-team home">
+              <div class="crest" id="homeCrest"></div>
+              <div>
+                <span id="homeName">Home</span>
+                <strong id="homeScore">0</strong>
+              </div>
+            </div>
+            <div class="clock">
+              <strong id="matchClock">0'</strong>
+              <span id="matchStatus">Ready</span>
+            </div>
+            <div class="score-team away">
+              <div>
+                <span id="awayName">Away</span>
+                <strong id="awayScore">0</strong>
+              </div>
+              <div class="crest" id="awayCrest"></div>
+            </div>
+          </div>
+
+          <div class="pitch-wrap">
+            <div class="pitch" id="pitch" aria-label="Animated match pitch">
+              <div class="tryline left"></div>
+              <div class="tryline right"></div>
+              <div class="halfway"></div>
+              <div class="twenty left"></div>
+              <div class="twenty right"></div>
+              <div class="ten left"></div>
+              <div class="ten right"></div>
+              <div class="ball" id="ball"></div>
+              <div id="playersLayer"></div>
+            </div>
+          </div>
+
+          <div class="match-grid">
+            <section class="tool-panel">
+              <div class="section-title">
+                <span>Live Read</span>
+              </div>
+              <div class="momentum">
+                <span id="homeMomentum">50</span>
+                <div class="momentum-track">
+                  <div id="momentumBar"></div>
+                </div>
+                <span id="awayMomentum">50</span>
+              </div>
+              <div id="statsGrid" class="stats-grid"></div>
+            </section>
+
+            <section class="tool-panel">
+              <div class="section-title">
+                <span>Commentary</span>
+              </div>
+              <ol id="commentary" class="commentary"></ol>
+            </section>
+          </div>
+        </section>
+
+        <aside class="squad-panel" aria-label="Squad and lineup">
+          <section class="tool-panel">
+            <div class="section-title">
+              <span>Run-On 13</span>
+              <span id="teamRating" class="rating-pill">--</span>
+            </div>
+            <div id="lineupList" class="lineup-list"></div>
+          </section>
+          <section class="tool-panel">
+            <div class="section-title">
+              <span>Bench</span>
+            </div>
+            <div id="benchList" class="lineup-list bench-list"></div>
+          </section>
+          <section class="tool-panel grow">
+            <div class="section-title">
+              <span>Squad Browser</span>
+              <input id="squadSearch" type="search" placeholder="Search players">
+            </div>
+            <div id="squadList" class="squad-list"></div>
+          </section>
+        </aside>
+      </main>
+
+      <footer class="footer-note">
+        Rosters are seeded from public 2026 squad listings and can sync from Wikipedia in-browser. Player ratings are generated for game balance.
+      </footer>
+    </div>
+
+    <script src="data/squads.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
