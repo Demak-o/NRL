@@ -914,10 +914,10 @@ function tacticalSpot(index, side) {
 }
 
 function playerDot(item, team, x, y, extraClass) {
-  const bg = extraClass ? team.secondary : team.primary;
-  const textColor = "#ffffff";
-  const borderColor = extraClass ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.9)";
-  const shadow = extraClass ? "0 4px 10px rgba(0,0,0,0.3)" : "0 6px 14px rgba(0,0,0,0.5)";
+  const bg = team.primary;
+  const textColor = team.secondary;
+  const borderColor = team.secondary;
+  const shadow = "0 6px 14px rgba(0,0,0,0.5)";
   return `<div class="player-dot ${extraClass}" title="${escapeHtml(item.player.name)}" style="left:${x}%;top:${y}%;background:${bg};color:${textColor};border-color:${borderColor};box-shadow:${shadow}">${item.jersey}</div>`;
 }
 
