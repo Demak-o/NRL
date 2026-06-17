@@ -209,31 +209,57 @@ function buildPlayerCatalog() {
 
 function buildStats(player, teamIndex, playerIndex) {
   const seed = hash(`${player.id}-${teamIndex}-${playerIndex}`);
-  const gradeBoost = player.squad === "top30" ? 14 : player.squad === "supplementary" ? 7 : 2;
-  const base = 55 + gradeBoost + (seed % 16);
+  const totalPlayers = state.squads.teams[teamIndex].players.length;
+  const tierPosition = playerIndex / totalPlayers; // 0 = first on roster, 1 = last
+
+  // Spread ratings realistically based on roster position (top-listed = star, bottom = fringe)
+  let quality;
+  if (tierPosition < 0.15) {
+    quality = 88 + (seed % 8);        // 88-95  elite
+  } else if (tierPosition < 0.35) {
+    quality = 78 + (seed % 10);       // 78-87  strong first grader
+  } else if (tierPosition < 0.60) {
+    quality = 68 + (seed % 10);       // 68-77  solid regular
+  } else if (tierPosition < 0.80) {
+    quality = 58 + (seed % 10);       // 58-67  rotation / depth
+  } else {
+    quality = 48 + (seed % 10);       // 48-57  fringe / development
+  }
+
+  // Apply squad status penalty for non-top30
+  if (player.squad !== "top30") {
+    quality = Math.max(45, quality - (player.squad === "supplementary" ? 8 : 15));
+  }
+
   const positions = player.positions;
   const has = (code) => positions.includes(code);
   const back = has("FB") || has("WG") || has("CE");
   const spine = has("FB") || has("FE") || has("HB") || has("HK");
   const forward = has("PR") || has("SR") || has("LK");
+
+  const v1 = (seed >> 0) % 8;
+  const v2 = (seed >> 2) % 6;
+  const v3 = (seed >> 3) % 6;
+  const v4 = (seed >> 1) % 7;
+
   return {
-    attack: clamp(base + (back ? 7 : 0) + (spine ? 5 : 0) - (has("PR") ? 2 : 0), 48, 96),
-    defence: clamp(base + (forward ? 8 : 0) + (has("CE") ? 3 : 0), 48, 96),
-    fitness: clamp(base + (has("LK") || has("SR") ? 6 : 0) + ((seed >> 3) % 8), 48, 96),
-    kicking: clamp(base + (has("HB") ? 18 : 0) + (has("FE") ? 13 : 0) + (has("FB") ? 7 : 0) - (forward ? 7 : 0), 38, 96)
+    attack: clamp(quality + (back ? 6 : 0) + (spine ? 4 : 0) - (has("PR") ? 3 : 0) - v1, 38, 97),
+    defence: clamp(quality + (forward ? 8 : 0) + (has("CE") ? 3 : 0) - (back ? 2 : 0) - v2, 38, 97),
+    fitness: clamp(quality + (has("LK") || has("SR") ? 5 : 0) + v3, 38, 97),
+    kicking: clamp(quality + (has("HB") ? 16 : 0) + (has("FE") ? 11 : 0) + (has("FB") ? 6 : 0) - (forward ? 8 : 0) - v4, 35, 97)
   };
 }
 
 function buildTalent(player, teamIndex, playerIndex) {
   const seed = hash(`${player.name}-talent-${teamIndex}-${playerIndex}`);
-  return clamp(Math.round(player.rating + 3 + (seed % 18) - (player.squad === "top30" ? 2 : 0)), 55, 99);
+  return clamp(Math.round(player.rating + 3 + (seed % 18)), 40, 99);
 }
 
 function buildValue(player) {
-  const premium = Math.pow(player.rating - 45, 2) * 1450;
-  const talent = Math.max(0, player.talent - player.rating) * 36000;
-  const spine = player.positions.some((pos) => ["FB", "FE", "HB", "HK"].includes(pos)) ? 110000 : 0;
-  return roundMoney(120000 + premium + talent + spine);
+  const premium = Math.pow(Math.max(0, player.rating - 52), 2) * 1250;
+  const talent = Math.max(0, player.talent - player.rating) * 30000;
+  const spine = player.positions.some((pos) => ["FB", "FE", "HB", "HK"].includes(pos)) ? 90000 : 0;
+  return roundMoney(100000 + premium + talent + spine);
 }
 
 function renderCareerPicker() {
