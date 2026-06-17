@@ -319,7 +319,8 @@ function startCareer(teamId) {
     finalsOpponent: null,
     seasonOver: false,
     recycleCount: 0,
-    marketSeed: null
+    marketRoll: 0,
+    marketPool: null
   };
   state.phase = "prep";
   state.injuriesCheckedRound = null;
@@ -403,6 +404,12 @@ function renderPrep() {
 
   els.squadCountText.textContent = `${careerRoster().length} players`;
   els.marketCountText.textContent = `${marketPlayers().length} available`;
+  const rerollCost = 50000 + state.career.recycleCount * 75000;
+  const recycleBtn = document.getElementById("recycleButton");
+  if (recycleBtn) {
+    recycleBtn.textContent = `⟳ Reroll Market (${money(rerollCost)})`;
+    recycleBtn.disabled = state.career.budget < rerollCost;
+  }
   els.squadList.innerHTML = roster.map((player) => playerRow(player, "sell")).join("");
   els.marketList.innerHTML = market.map((player) => playerRow(player, "buy")).join("");
   bindMarketButtons();
@@ -882,7 +889,8 @@ function nextRound() {
   state.ball = { x: 50, y: 50 };
   state.purchasesThisRound = 0;
   state.recycleCount = 0;
-  state.marketSeed = null;
+  state.career.marketRoll = 0;
+  state.career.marketPool = null;
   state.triggeredDecisions = new Set();
   recoverInjuries();
   setPhase("prep");
@@ -892,12 +900,13 @@ function rerollMarket() {
   if (!state.career) return;
   const cost = 50000 + state.career.recycleCount * 75000;
   if (state.career.budget < cost) {
-    alert(`Recycle costs ${money(cost)}. Insufficient funds.`);
+    alert(`Reroll costs ${money(cost)}. Insufficient funds.`);
     return;
   }
   state.career.budget -= cost;
   state.career.recycleCount += 1;
-  state.marketSeed = null;
+  state.career.marketRoll += 1;
+  state.career.marketPool = null;
   renderAll();
 }
 
@@ -1213,38 +1222,55 @@ function healthyRoster() {
 }
 
 function marketPlayers() {
-  if (!state.marketSeed) {
-    state.marketSeed = seededRandom(`market-${state.career.seed}-market-${state.career.roundIndex}`);
-  }
+  // Return cached market pool if it exists
+  if (state.career.marketPool) return state.career.marketPool;
+
   const owned = new Set(state.career.rosterIds);
   const available = state.players.filter((player) => !owned.has(player.id));
 
-  const weighted = available.map((player) => {
+  // Separate high-rated (72+) and regular players
+  const elite = available.filter((player) => player.rating >= 72);
+  const regular = available.filter((player) => player.rating < 72);
+
+  // Shuffle helpers
+  const shuffle = (arr, seed) => [...arr].sort(() => 0.5 - seededRandom(seed + arr.length));
+
+  const selected = [];
+
+  // Guarantee one elite player (if any exist)
+  if (elite.length > 0) {
+    const pool = shuffle(elite, `${state.career.seed}-elite-${state.career.roundIndex}-${state.career.marketRoll}`);
+    selected.push(pool[0]);
+  }
+
+  // Fill remaining 5-6 slots from ALL available players (weighted by rarity)
+  const remainingSlots = 6 - selected.length;
+  const remainingPool = available.filter((p) => !selected.includes(p));
+  const weighted = remainingPool.map((player) => {
     const rarity = Math.pow((player.rating - 48) / 48, 3.5);
     const chance = Math.pow(1 - rarity, 2);
     return { player, chance };
   });
 
-  const selected = [];
-  const sorted = weighted.sort(() => 0.5 - seededRandom(`${state.marketSeed}-sort-${selected.length}`));
+  const sorted = weighted.sort(() => 0.5 - seededRandom(`${state.career.seed}-fill-${state.career.roundIndex}-${state.career.marketRoll}`));
 
-  // Always pick 6 players: first try weighted, then fill with random
   for (let i = 0; i < sorted.length && selected.length < 6; i++) {
-    const roll = seededRandom(`${state.marketSeed}-roll-${i}`);
+    const roll = seededRandom(`${state.career.seed}-pick-${state.career.roundIndex}-${state.career.marketRoll}-${i}`);
     if (roll < sorted[i].chance) {
       selected.push(sorted[i].player);
     }
   }
 
-  // If not enough were picked by rarity, fill remaining slots
+  // Fill remaining with whoever's left
   if (selected.length < 6) {
-    const remaining = sorted.filter((item) => !selected.includes(item.player));
-    for (let i = 0; i < remaining.length && selected.length < 6; i++) {
-      selected.push(remaining[i].player);
+    const leftovers = remainingPool.filter((p) => !selected.includes(p));
+    for (let i = 0; i < leftovers.length && selected.length < 6; i++) {
+      selected.push(leftovers[i]);
     }
   }
 
-  return selected.sort((a, b) => b.rating - a.rating || b.talent - a.talent);
+  state.career.marketPool = selected.sort((a, b) => b.rating - a.rating || b.talent - a.talent);
+  return state.career.marketPool;
 }
 
 function playerMatches(player, query) {
