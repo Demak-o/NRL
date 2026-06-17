@@ -254,7 +254,7 @@ function renderCareerPicker() {
   state.selectedCareerTeam = state.squads.teams[0].id;
   els.careerTeamGrid.innerHTML = state.squads.teams.map((team, index) => `
     <button class="career-team ${index === 0 ? "selected" : ""}" data-team="${team.id}" type="button">
-      <span class="mini-crest" style="background:linear-gradient(135deg, ${team.primary}, ${team.secondary})">${initials(team.name)}</span>
+      <span class="mini-crest" style="background:linear-gradient(135deg, ${team.primary}, ${team.secondary})" data-crest="${team.id}">${initials(team.name)}</span>
       <strong>${team.name}</strong>
     </button>
   `).join("");
@@ -265,6 +265,30 @@ function renderCareerPicker() {
       state.selectedCareerTeam = button.dataset.team;
     });
   });
+  // Try loading logo images into mini-crests
+  els.careerTeamGrid.querySelectorAll("[data-crest]").forEach(loadMiniCrest);
+}
+
+function loadMiniCrest(el) {
+  const teamId = el.dataset.crest;
+  const team = state.squads.teams.find((t) => t.id === teamId);
+  if (!team) return;
+  const img = new Image();
+  img.onload = () => {
+    el.innerHTML = "";
+    el.style.background = "transparent";
+    el.style.border = "none";
+    el.style.textShadow = "none";
+    el.appendChild(img);
+  };
+  img.onerror = () => {
+    // Keep the initials fallback already rendered
+  };
+  img.src = logoPath(teamId);
+  img.alt = team.shortName;
+  img.style.width = "100%";
+  img.style.height = "100%";
+  img.style.objectFit = "contain";
 }
 
 function showCareerModal(show) {
@@ -885,7 +909,7 @@ function renderClubStatus() {
   els.teamRating.textContent = `${avg} OVR`;
   els.clubCard.innerHTML = `
     <div class="club-banner" style="background:linear-gradient(135deg, ${team.primary}, ${team.secondary})">
-      <span>${initials(team.name)}</span>
+      <span class="club-logo" data-crest="${team.id}">${initials(team.name)}</span>
       <strong>${team.name}</strong>
     </div>
     <div class="club-metrics">
@@ -894,6 +918,9 @@ function renderClubStatus() {
       <span>Injured <b>${roster.filter(isInjured).length}</b></span>
     </div>
   `;
+  // Try loading logo into club banner
+  const logoEl = els.clubCard.querySelector(".club-logo");
+  if (logoEl) loadMiniCrest(logoEl);
 }
 
 function renderSelectedList() {
@@ -1087,9 +1114,30 @@ function bestKicker(team) {
   return [...team.runOn].sort((a, b) => b.player.rating - a.player.rating)[0].player;
 }
 
+function logoPath(teamId) {
+  return `logos/${teamId}.png`;
+}
+
 function renderCrest(el, team) {
-  el.textContent = initials(team.name);
-  el.style.background = `linear-gradient(135deg, ${team.primary}, ${team.secondary})`;
+  const img = new Image();
+  img.onload = () => {
+    el.innerHTML = "";
+    el.style.background = "transparent";
+    el.style.border = "none";
+    el.style.textShadow = "none";
+    el.appendChild(img);
+  };
+  img.onerror = () => {
+    el.textContent = initials(team.name);
+    el.style.background = `linear-gradient(135deg, ${team.primary}, ${team.secondary})`;
+    el.style.border = "";
+    el.style.textShadow = "";
+  };
+  img.src = logoPath(team.id);
+  img.alt = team.shortName;
+  img.style.width = "100%";
+  img.style.height = "100%";
+  img.style.objectFit = "contain";
 }
 
 function updateSliderLabels() {
