@@ -182,6 +182,10 @@ function bindEvents() {
   els.startButton.addEventListener("click", startMatch);
   els.pauseButton.addEventListener("click", pauseMatch);
   els.continueButton.addEventListener("click", continueAfterMatch);
+  const recycleBtn = document.getElementById("recycleButton");
+  if (recycleBtn) {
+    recycleBtn.addEventListener("click", rerollMarket);
+  }
   els.squadSearch.addEventListener("input", renderPrep);
   els.marketSearch.addEventListener("input", renderPrep);
 }
@@ -313,7 +317,9 @@ function startCareer(teamId) {
     results: [],
     finalsPhase: null, // null | "semifinal" | "grandfinal" | "complete"
     finalsOpponent: null,
-    seasonOver: false
+    seasonOver: false,
+    recycleCount: 0,
+    marketSeed: null
   };
   state.phase = "prep";
   state.injuriesCheckedRound = null;
@@ -749,8 +755,22 @@ function finishMatch() {
   const score = state.match.score;
   const home = state.match.home.shortName;
   const away = state.match.away.shortName;
-  const result = score.home === score.away ? "It ends level." : score.home > score.away ? `${home} win.` : `${away} win.`;
-  state.match.events.unshift({ minute: 80, text: `Full time: ${home} ${score.home}, ${away} ${score.away}. ${result}` });
+  const isManagerHome = state.match.managerSide === "home";
+  const managerScore = isManagerHome ? score.home : score.away;
+  const oppScore = isManagerHome ? score.away : score.home;
+  const myTries = state.match.stats[state.match.managerSide].tries;
+
+  // Award money: $250k per try, $300k for win, -$150k for loss
+  let moneyChange = myTries * 250000;
+  if (managerScore > oppScore) {
+    moneyChange += 300000;
+  } else if (managerScore < oppScore) {
+    moneyChange -= 150000;
+  }
+  state.career.budget += moneyChange;
+
+  const result = managerScore === oppScore ? "It ends level." : managerScore > oppScore ? `${home} win.` : `${away} win.`;
+  state.match.events.unshift({ minute: 80, text: `Full time: ${home} ${score.home}, ${away} ${score.away}. ${result} ${moneyChange >= 0 ? "+" : ""}${money(moneyChange)}` });
   applyRoundResults(score.home, score.away);
   renderAll();
 }
@@ -861,10 +881,24 @@ function nextRound() {
   state.minute = 0;
   state.ball = { x: 50, y: 50 };
   state.purchasesThisRound = 0;
+  state.recycleCount = 0;
   state.marketSeed = null;
   state.triggeredDecisions = new Set();
   recoverInjuries();
   setPhase("prep");
+}
+
+function rerollMarket() {
+  if (!state.career) return;
+  const cost = 50000 + state.career.recycleCount * 75000;
+  if (state.career.budget < cost) {
+    alert(`Recycle costs ${money(cost)}. Insufficient funds.`);
+    return;
+  }
+  state.career.budget -= cost;
+  state.career.recycleCount += 1;
+  state.marketSeed = null;
+  renderAll();
 }
 
 function enterFinals() {
@@ -1194,10 +1228,19 @@ function marketPlayers() {
   const selected = [];
   const sorted = weighted.sort(() => 0.5 - seededRandom(`${state.marketSeed}-sort-${selected.length}`));
 
+  // Always pick 6 players: first try weighted, then fill with random
   for (let i = 0; i < sorted.length && selected.length < 6; i++) {
     const roll = seededRandom(`${state.marketSeed}-roll-${i}`);
     if (roll < sorted[i].chance) {
       selected.push(sorted[i].player);
+    }
+  }
+
+  // If not enough were picked by rarity, fill remaining slots
+  if (selected.length < 6) {
+    const remaining = sorted.filter((item) => !selected.includes(item.player));
+    for (let i = 0; i < remaining.length && selected.length < 6; i++) {
+      selected.push(remaining[i].player);
     }
   }
 

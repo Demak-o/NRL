@@ -316,6 +316,24 @@ input[type="range"] {
   width: min(1180px, 100%);
 }
 
+.recycle-btn {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 8px;
+  border-radius: 7px;
+  background: rgba(69, 196, 106, 0.12);
+  border: 1px solid rgba(69, 196, 106, 0.3);
+  color: var(--good);
+  font-weight: 800;
+  font-size: 0.82rem;
+  transition: all 200ms ease;
+}
+
+.recycle-btn:hover {
+  background: rgba(69, 196, 106, 0.2);
+  border-color: var(--good);
+}
+
 .player-list {
   display: grid;
   gap: 8px;
