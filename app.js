@@ -197,8 +197,7 @@ function buildPlayerCatalog() {
         injuryUntilRound: 0,
         sold: false
       };
-      player.stats = buildStats(player, teamIndex, playerIndex);
-      player.rating = Math.round((player.stats.attack + player.stats.defence + player.stats.fitness + player.stats.kicking) / 4);
+      player.rating = buildRating(player, teamIndex, playerIndex);
       player.talent = buildTalent(player, teamIndex, playerIndex);
       player.value = buildValue(player);
       player.wage = Math.round(player.value * 0.19);
@@ -207,47 +206,36 @@ function buildPlayerCatalog() {
   });
 }
 
-function buildStats(player, teamIndex, playerIndex) {
-  const seed = hash(`${player.id}-${teamIndex}-${playerIndex}`);
-  const totalPlayers = state.squads.teams[teamIndex].players.length;
-  const tierPosition = playerIndex / totalPlayers; // 0 = first on roster, 1 = last
-
-  // Spread ratings realistically based on roster position (top-listed = star, bottom = fringe)
-  let quality;
-  if (tierPosition < 0.15) {
-    quality = 88 + (seed % 8);        // 88-95  elite
-  } else if (tierPosition < 0.35) {
-    quality = 78 + (seed % 10);       // 78-87  strong first grader
-  } else if (tierPosition < 0.60) {
-    quality = 68 + (seed % 10);       // 68-77  solid regular
-  } else if (tierPosition < 0.80) {
-    quality = 58 + (seed % 10);       // 58-67  rotation / depth
-  } else {
-    quality = 48 + (seed % 10);       // 48-57  fringe / development
+function buildRating(player, teamIndex, playerIndex) {
+  // Check for manual rating in data/ratings.js first
+  const manualRatings = window.NRL_RATINGS || {};
+  if (manualRatings[player.id] != null) {
+    return manualRatings[player.id];
   }
 
-  // Apply squad status penalty for non-top30
+  // Auto-generate from roster position (fallback)
+  const seed = hash(`${player.id}-${teamIndex}-${playerIndex}`);
+  const totalPlayers = state.squads.teams[teamIndex].players.length;
+  const tierPosition = playerIndex / totalPlayers;
+
+  let quality;
+  if (tierPosition < 0.15) {
+    quality = 88 + (seed % 8);
+  } else if (tierPosition < 0.35) {
+    quality = 78 + (seed % 10);
+  } else if (tierPosition < 0.60) {
+    quality = 68 + (seed % 10);
+  } else if (tierPosition < 0.80) {
+    quality = 58 + (seed % 10);
+  } else {
+    quality = 48 + (seed % 10);
+  }
+
   if (player.squad !== "top30") {
     quality = Math.max(45, quality - (player.squad === "supplementary" ? 8 : 15));
   }
 
-  const positions = player.positions;
-  const has = (code) => positions.includes(code);
-  const back = has("FB") || has("WG") || has("CE");
-  const spine = has("FB") || has("FE") || has("HB") || has("HK");
-  const forward = has("PR") || has("SR") || has("LK");
-
-  const v1 = (seed >> 0) % 8;
-  const v2 = (seed >> 2) % 6;
-  const v3 = (seed >> 3) % 6;
-  const v4 = (seed >> 1) % 7;
-
-  return {
-    attack: clamp(quality + (back ? 6 : 0) + (spine ? 4 : 0) - (has("PR") ? 3 : 0) - v1, 38, 97),
-    defence: clamp(quality + (forward ? 8 : 0) + (has("CE") ? 3 : 0) - (back ? 2 : 0) - v2, 38, 97),
-    fitness: clamp(quality + (has("LK") || has("SR") ? 5 : 0) + v3, 38, 97),
-    kicking: clamp(quality + (has("HB") ? 16 : 0) + (has("FE") ? 11 : 0) + (has("FB") ? 6 : 0) - (forward ? 8 : 0) - v4, 35, 97)
-  };
+  return quality;
 }
 
 function buildTalent(player, teamIndex, playerIndex) {
@@ -447,7 +435,7 @@ function runInjuryCheck() {
   const log = [];
   careerRoster().forEach((player) => {
     if (isInjured(player)) return;
-    const risk = 0.018 + (78 - player.stats.fitness) / 1800;
+    const risk = 0.02 + (78 - player.rating) / 2200;
     const roll = seededRandom(`${state.career.seed}-r${roundNo}-${player.id}-injury`);
     if (roll < risk) {
       const weeks = 1 + Math.floor(seededRandom(`${state.career.seed}-${player.id}-${roundNo}-weeks`) * 4);
@@ -605,11 +593,8 @@ function bestForRole(players, roles, selected, tactic) {
 
 function scoreForRole(player, role, tactic) {
   const fit = player.positions.includes(role) ? 10 : 0;
-  const stats = player.stats;
-  const tempoBoost = tactic.tempo > 65 ? stats.fitness * 0.1 : 0;
-  if (["HB", "FE", "FB"].includes(role)) return stats.attack * 0.36 + stats.kicking * 0.34 + stats.fitness * 0.18 + stats.defence * 0.12 + fit + tempoBoost;
-  if (["PR", "SR", "LK", "HK"].includes(role)) return stats.defence * 0.34 + stats.fitness * 0.28 + stats.attack * 0.24 + stats.kicking * 0.08 + fit + tempoBoost;
-  return stats.attack * 0.4 + stats.fitness * 0.24 + stats.defence * 0.22 + stats.kicking * 0.08 + fit + tempoBoost;
+  const tempoBoost = tactic.tempo > 65 ? player.rating * 0.1 : 0;
+  return player.rating + fit + tempoBoost;
 }
 
 function teamRating(lineup, tactic) {
@@ -688,7 +673,7 @@ function playMinute() {
 
 function scoreTry(side, team, pressure, rand) {
   const scorer = chooseScorer(team, rand);
-  const converted = rand + teamAverage(team, "kicking") / 140 > 0.78;
+  const converted = rand + teamAverage(team) / 140 > 0.78;
   state.match.score[side] += converted ? 6 : 4;
   state.match.stats[side].tries += 1;
   state.match.stats[side].lineBreaks += 1;
@@ -717,7 +702,7 @@ function errorEvent(attackKey, defendKey, team) {
 
 function kickEvent(attackKey, defendKey, team) {
   const kicker = bestKicker(team);
-  const pinned = team.tactic.kicking + teamAverage(team, "kicking") > 132;
+  const pinned = team.tactic.kicking + teamAverage(team) > 132;
   state.match.events.unshift({ minute: state.minute, text: `${kicker.name} kicks ${pinned ? "deep into the corner" : "early for territory"}.` });
   state.possession = defendKey;
   state.territory = pinned ? 16 : 34;
@@ -1074,11 +1059,13 @@ function blankStats() {
 }
 
 function teamPower(team) {
-  const attack = teamAverage(team, "attack") + (team.tactic.style === "expansive" ? 4 : 0) + (team.tactic.tempo - 50) / 8;
-  const defence = teamAverage(team, "defence") + (team.tactic.defence - 50) / 7;
-  const kicking = teamAverage(team, "kicking") + (team.tactic.style === "territory" ? 4 : 0) + (team.tactic.kicking - 50) / 9;
+  const avgRating = teamAverage(team);
+  const styleBoost = team.tactic.style === "expansive" ? 4 : team.tactic.style === "territory" ? 4 : 0;
+  const tempoMod = (team.tactic.tempo - 50) / 8;
+  const defenceMod = (team.tactic.defence - 50) / 7;
+  const kickingMod = (team.tactic.kicking - 50) / 9;
   const fatigue = team.runOn.reduce((total, item) => total + (item.fatigue || 0), 0) / team.runOn.length;
-  return attack * 0.42 + defence * 0.37 + kicking * 0.18 - fatigue * 0.35;
+  return (avgRating + styleBoost + tempoMod + defenceMod + kickingMod) - fatigue * 0.35;
 }
 
 function teamPressure(attack, defend, defendMods) {
@@ -1086,8 +1073,8 @@ function teamPressure(attack, defend, defendMods) {
   return clamp(50 + teamPower(attack) - defendPower, 15, 88);
 }
 
-function teamAverage(team, stat) {
-  return team.runOn.reduce((total, item) => total + item.player.stats[stat], 0) / team.runOn.length;
+function teamAverage(team) {
+  return team.runOn.reduce((total, item) => total + item.player.rating, 0) / team.runOn.length;
 }
 
 function chooseScorer(team, rand) {
@@ -1097,7 +1084,7 @@ function chooseScorer(team, rand) {
 }
 
 function bestKicker(team) {
-  return [...team.runOn].sort((a, b) => b.player.stats.kicking - a.player.stats.kicking)[0].player;
+  return [...team.runOn].sort((a, b) => b.player.rating - a.player.rating)[0].player;
 }
 
 function renderCrest(el, team) {
