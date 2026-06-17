@@ -310,13 +310,17 @@ function startCareer(teamId) {
     rosterIds: initialRoster,
     lineup: [],
     injuryLog: [],
-    results: []
+    results: [],
+    finalsPhase: null, // null | "semifinal" | "grandfinal" | "complete"
+    finalsOpponent: null,
+    seasonOver: false
   };
   state.phase = "prep";
   state.injuriesCheckedRound = null;
   createLadder();
   autoPickLineup();
   showCareerModal(false);
+  hideSeasonEnd();
   renderAll();
 }
 
@@ -773,6 +777,60 @@ function applyRoundResults(managedHomeScore, managedAwayScore) {
 
 function continueAfterMatch() {
   if (!state.match?.finished) return;
+
+  if (state.career.finalsPhase === "semifinal") {
+    // Check if we won the semi
+    const myScore = state.career.teamId === state.match.home.id ? state.match.score.home : state.match.score.away;
+    const oppScore = state.career.teamId === state.match.home.id ? state.match.score.away : state.match.score.home;
+
+    if (myScore >= oppScore) {
+      // Won semi — advance to grand final
+      state.career.finalsPhase = "grandfinal";
+      state.career.injuryLog = [];
+      state.match = null;
+      recoverInjuries();
+      autoPickLineup();
+      runGrandFinal();
+      setPhase("match");
+      renderAll();
+      return;
+    } else {
+      // Lost semi
+      state.career.seasonOver = true;
+      state.career.finalsPhase = "complete";
+      state.match = null;
+      setPhase("prep");
+      showSeasonEnd(4, "semi");
+      renderAll();
+      return;
+    }
+  }
+
+  if (state.career.finalsPhase === "grandfinal") {
+    const myScore = state.career.teamId === state.match.home.id ? state.match.score.home : state.match.score.away;
+    const oppScore = state.career.teamId === state.match.home.id ? state.match.score.away : state.match.score.home;
+
+    if (myScore >= oppScore) {
+      // Premiers!
+      state.career.seasonOver = true;
+      state.career.finalsPhase = "complete";
+      state.match = null;
+      setPhase("prep");
+      showSeasonEnd(1, null);
+      renderAll();
+      return;
+    } else {
+      // Runner-up
+      state.career.seasonOver = true;
+      state.career.finalsPhase = "complete";
+      state.match = null;
+      setPhase("prep");
+      showSeasonEnd(2, "grandfinal");
+      renderAll();
+      return;
+    }
+  }
+
   nextRound();
 }
 
@@ -789,7 +847,14 @@ function advanceByeWeek() {
 }
 
 function nextRound() {
-  state.career.roundIndex = Math.min(state.career.roundIndex + 1, state.fixtures.rounds.length - 1);
+  state.career.roundIndex += 1;
+
+  // Check if regular season is complete (after round 27)
+  if (state.career.roundIndex >= state.fixtures.rounds.length) {
+    enterFinals();
+    return;
+  }
+
   state.career.injuryLog = [];
   state.injuriesCheckedRound = null;
   state.match = null;
@@ -800,6 +865,75 @@ function nextRound() {
   state.triggeredDecisions = new Set();
   recoverInjuries();
   setPhase("prep");
+}
+
+function enterFinals() {
+  // Sort ladder to find top 4
+  const sorted = Object.values(state.ladder)
+    .sort((a, b) => b.points - a.points || (b.for - b.against) - (a.for - a.against) || b.for - a.for);
+
+  const rank = sorted.findIndex((row) => row.teamId === state.career.teamId) + 1;
+  const team = careerTeam();
+
+  if (rank > 4) {
+    // Missed finals
+    state.career.seasonOver = true;
+    state.career.finalsPhase = "complete";
+    setPhase("prep");
+    showSeasonEnd(rank, null);
+    renderAll();
+    return;
+  }
+
+  // Set up semi-final opponent (1v4, 2v3)
+  const opponentIndex = rank <= 2 ? 3 : 1; // 1 plays 4, 2 plays 3
+  state.career.finalsOpponent = sorted[opponentIndex].teamId;
+  state.career.finalsPhase = "semifinal";
+  state.career.injuryLog = [];
+  state.injuriesCheckedRound = null;
+  state.match = null;
+  state.purchasesThisRound = 0;
+  state.triggeredDecisions = new Set();
+  recoverInjuries();
+  setPhase("prep");
+  renderAll();
+}
+
+function runGrandFinal() {
+  const opponent = teamById(state.career.finalsOpponent);
+  const fixture = {
+    home: state.career.teamId,
+    away: state.career.finalsOpponent,
+    date: "Grand Final",
+    venue: "Stadium Australia"
+  };
+
+  // Auto lineup and force match
+  autoPickLineup();
+  const homeTeam = buildMatchTeam(teamById(fixture.home), true);
+  const awayTeam = buildMatchTeam(teamById(fixture.away), false);
+  state.minute = 0;
+  state.running = false;
+  state.possession = "home";
+  state.territory = 50;
+  state.ball = { x: 50, y: 50 };
+  state.triggeredDecisions = new Set();
+  state.match = {
+    home: homeTeam,
+    away: awayTeam,
+    managerSide: "home",
+    score: { home: 0, away: 0 },
+    stats: { home: blankStats(), away: blankStats() },
+    events: [{ minute: 0, text: `${homeTeam.shortName} and ${awayTeam.shortName} meet in the Grand Final!` }],
+    finished: false,
+    decisionModifiers: { defence: 0, attack: 0, kicking: 0, tempo: 0, fatigue: 0, metres: 0, wideAttack: 0, possession: 0, errors: 0, territory: 0 }
+  };
+
+  // Disable the regular continue button during finals
+  els.continueButton.textContent = "Final: Full Time";
+  els.continueButton.disabled = true;
+  setPhase("match");
+  renderAll();
 }
 
 function recoverInjuries() {
@@ -1016,7 +1150,11 @@ function buildMatchTeamForSim(team) {
 }
 
 function currentRound() {
-  return state.fixtures.rounds[state.career?.roundIndex || 0];
+  const idx = state.career?.roundIndex || 0;
+  if (idx >= state.fixtures.rounds.length) {
+    return state.fixtures.rounds[state.fixtures.rounds.length - 1];
+  }
+  return state.fixtures.rounds[idx];
 }
 
 function currentTeamFixture() {
@@ -1157,6 +1295,42 @@ function renderCrest(el, team) {
   img.style.width = "100%";
   img.style.height = "100%";
   img.style.objectFit = "contain";
+}
+
+function showSeasonEnd(rank, stage) {
+  const team = careerTeam();
+  let title, subtitle, resultClass;
+
+  if (rank === 1) {
+    title = "🏆 Premiers!";
+    subtitle = `${team.name} are the 2026 NRL Champions!`;
+    resultClass = "season-win";
+  } else if (rank === 2) {
+    title = "Grand Finalist";
+    subtitle = `${team.name} were runners-up in the 2026 Grand Final.`;
+    resultClass = "season-loss";
+  } else if (stage === "semi") {
+    title = "Semi-Final Exit";
+    subtitle = `${team.name} finished ${rank}th and lost the semi-final.`;
+    resultClass = "season-loss";
+  } else {
+    const ord = rank + ["th","st","nd","rd"][rank % 100 > 10 ? 0 : rank % 10 > 3 ? 0 : rank % 10];
+    title = "Season Over";
+    subtitle = `${team.name} finished ${ord} and missed the finals.`;
+    resultClass = "season-loss";
+  }
+
+  const modal = document.getElementById("seasonEndModal");
+  if (!modal) return;
+  modal.querySelector(".season-title").textContent = title;
+  modal.querySelector(".season-subtitle").textContent = subtitle;
+  modal.querySelector(".season-result").className = `season-result ${resultClass}`;
+  modal.classList.remove("hidden");
+}
+
+function hideSeasonEnd() {
+  const modal = document.getElementById("seasonEndModal");
+  if (modal) modal.classList.add("hidden");
 }
 
 function updateSliderLabels() {
