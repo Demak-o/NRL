@@ -944,6 +944,9 @@ function createLadder() {
   state.ladder = Object.fromEntries(state.squads.teams.map((team) => [team.id, {
     teamId: team.id,
     played: 0,
+    wins: 0,
+    draws: 0,
+    losses: 0,
     points: 0,
     for: 0,
     against: 0
@@ -961,11 +964,17 @@ function applyLadderResult(homeId, awayId, homeScore, awayScore) {
   away.against += homeScore;
   if (homeScore === awayScore) {
     home.points += 1;
+    home.draws += 1;
     away.points += 1;
+    away.draws += 1;
   } else if (homeScore > awayScore) {
     home.points += 2;
+    home.wins += 1;
+    away.losses += 1;
   } else {
     away.points += 2;
+    away.wins += 1;
+    home.losses += 1;
   }
 }
 
@@ -973,9 +982,19 @@ function renderLadder() {
   if (!state.ladder) return;
   const rows = Object.values(state.ladder)
     .sort((a, b) => b.points - a.points || (b.for - b.against) - (a.for - a.against) || b.for - a.for);
-  els.ladder.innerHTML = rows.map((row, index) => {
+  els.ladder.innerHTML = `
+    <div class="ladder-row ladder-header">
+      <span></span>
+      <b>Team</b>
+      <span>P</span>
+      <span>W</span>
+      <span>D</span>
+      <span>L</span>
+      <strong>Pts</strong>
+    </div>
+  ` + rows.map((row, index) => {
     const team = teamById(row.teamId);
-    return `<div class="ladder-row"><span>${index + 1}</span><b>${team.shortName}</b><span>${row.played}</span><strong>${row.points}</strong></div>`;
+    return `<div class="ladder-row"><span>${index + 1}</span><b>${team.shortName}</b><span>${row.played}</span><span>${row.wins}</span><span>${row.draws}</span><span>${row.losses}</span><strong>${row.points}</strong></div>`;
   }).join("");
 }
 

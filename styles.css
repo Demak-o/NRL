@@ -679,17 +679,40 @@ input[type="range"] {
 
 .ladder-row {
   display: grid;
-  grid-template-columns: 20px 1fr 28px 32px;
-  gap: 6px;
+  grid-template-columns: 20px 1fr 24px 24px 24px 24px 32px;
+  gap: 4px;
   align-items: center;
-  padding: 7px 8px;
-  font-size: 0.78rem;
+  padding: 6px 6px;
+  font-size: 0.75rem;
 }
 
 .ladder-row b {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ladder-row span,
+.ladder-row strong {
+  text-align: center;
+}
+
+.ladder-row strong:last-child {
+  font-weight: 900;
+  color: var(--accent);
+}
+
+.ladder-header {
+  border-color: var(--line-bright);
+  background: rgba(24, 29, 26, 0.6);
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.ladder-header b {
+  color: var(--muted);
 }
 
 .club-card {
