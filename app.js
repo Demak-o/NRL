@@ -934,8 +934,7 @@ function applyLadderResult(homeId, awayId, homeScore, awayScore) {
 function renderLadder() {
   if (!state.ladder) return;
   const rows = Object.values(state.ladder)
-    .sort((a, b) => b.points - a.points || (b.for - b.against) - (a.for - a.against) || b.for - a.for)
-    .slice(0, 10);
+    .sort((a, b) => b.points - a.points || (b.for - b.against) - (a.for - a.against) || b.for - a.for);
   els.ladder.innerHTML = rows.map((row, index) => {
     const team = teamById(row.teamId);
     return `<div class="ladder-row"><span>${index + 1}</span><b>${team.shortName}</b><span>${row.played}</span><strong>${row.points}</strong></div>`;
