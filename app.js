@@ -404,7 +404,7 @@ function renderPrep() {
 
   els.squadCountText.textContent = `${careerRoster().length} players`;
   els.marketCountText.textContent = `${marketPlayers().length} available`;
-  const rerollCost = 50000 + state.career.recycleCount * 75000;
+  const rerollCost = Math.min(500000, 50000 + state.career.recycleCount * 75000);
   const recycleBtn = document.getElementById("recycleButton");
   if (recycleBtn) {
     recycleBtn.textContent = `⟳ Reroll Market (${money(rerollCost)})`;
@@ -695,33 +695,59 @@ function playMinute() {
   state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * (35 + ((attackMods.metres || 0) + (decisionMods.metres || 0)) * 100)));
   state.match.stats[defendKey].tackles += Math.round((5 + Math.floor(rand * 4)) * (1 + (defendMods.defence + decisionMods.defence) * 0.02));
 
-  const eventRoll = rand * 100 + pressure * 0.12;
+  // Higher pressure = more action. Base eventRoll shifted to produce more scoring
+  const eventRoll = clamp(rand * 120 + pressure * 0.18, 0, 115);
   const errorMod = (attack.tactic.tempo - 50) / 8 + ((attackMods.errors || 0) + (decisionMods.errors || 0)) * 20;
   const tryMod = ((attackMods.wideAttack || 0) + (decisionMods.wideAttack || 0)) * 0.8;
 
-  if (eventRoll > 96 + tryMod && state.territory > 78) {
+  // More aggressive threshold — try in good territory, line break often
+  if (eventRoll > 82 + tryMod && state.territory > 70) {
     scoreTry(attackKey, attack, pressure, rand);
-  } else if (eventRoll > 88 && state.minute > 8) {
+  } else if (eventRoll > 72 && state.minute > 6) {
     lineBreak(attackKey, attack);
-  } else if (eventRoll < 10 + errorMod) {
+  } else if (eventRoll < 12 + errorMod) {
     errorEvent(attackKey, defendKey, attack);
-  } else if (eventRoll > 78 && (attack.tactic.kicking + attackMods.kicking + decisionMods.kicking) > 58 && state.minute > 20) {
+  } else if (eventRoll > 74 && (attack.tactic.kicking + attackMods.kicking + decisionMods.kicking) > 52 && state.minute > 18) {
     kickEvent(attackKey, defendKey, attack);
-  } else if (state.minute % 6 === 0) {
+  } else if (eventRoll > 60 && state.territory > 68) {
+    // Penalty goal attempt — 2 points, usually when close but can't break through
+    scorePenalty(attackKey, attack, pressure, rand);
+  } else if (state.minute % 5 === 0) {
     setRestartEvent(attackKey, attack);
   }
 }
 
 function scoreTry(side, team, pressure, rand) {
   const scorer = chooseScorer(team, rand);
-  const converted = rand + teamAverage(team) / 140 > 0.78;
+  // Most tries get converted (higher-rated teams convert more reliably)
+  const converted = rand + teamAverage(team) / 120 > 0.62;
   state.match.score[side] += converted ? 6 : 4;
   state.match.stats[side].tries += 1;
   state.match.stats[side].lineBreaks += 1;
   state.match.events.unshift({
     minute: state.minute,
-    text: `${team.shortName}: ${scorer.name} finishes a ${pressure > 60 ? "slick" : "scrappy"} set. ${converted ? "Converted." : "Conversion missed."}`
+    text: `${team.shortName}: ${scorer.name} crosses the line! ${converted ? "Converted." : "Conversion missed."}`
   });
+  state.possession = side === "home" ? "away" : "home";
+  state.territory = 50;
+  state.ball = { x: 50, y: 50 };
+}
+
+function scorePenalty(side, team, pressure, rand) {
+  // Penalty goal — 2 points, happens when in kicking range with pressure
+  const success = rand + teamAverage(team) / 130 > 0.55;
+  if (success) {
+    state.match.score[side] += 2;
+    state.match.events.unshift({
+      minute: state.minute,
+      text: `${team.shortName}: Slot a penalty goal. ${rand > 0.85 ? "From 40 metres out!" : ""}`
+    });
+  } else {
+    state.match.events.unshift({
+      minute: state.minute,
+      text: `${team.shortName}: Penalty goal attempt misses.`
+    });
+  }
   state.possession = side === "home" ? "away" : "home";
   state.territory = 50;
   state.ball = { x: 50, y: 50 };
@@ -898,7 +924,7 @@ function nextRound() {
 
 function rerollMarket() {
   if (!state.career) return;
-  const cost = 50000 + state.career.recycleCount * 75000;
+  const cost = Math.min(500000, 50000 + state.career.recycleCount * 75000);
   if (state.career.budget < cost) {
     alert(`Reroll costs ${money(cost)}. Insufficient funds.`);
     return;
@@ -1178,12 +1204,32 @@ function renderLadder() {
 function simResult(home, away, roundNo) {
   const h = teamPower(buildMatchTeamForSim(home));
   const a = teamPower(buildMatchTeamForSim(away));
-  const spread = clamp(Math.round((h - a) / 5), -18, 18);
-  const base = 12 + (hash(`${state.career.seed}-${home.id}-${away.id}-${roundNo}`) % 20);
-  return {
-    home: Math.max(0, base + spread + (hash(`${state.career.seed}-${home.id}`) % 8)),
-    away: Math.max(0, base - spread + (hash(`${state.career.seed}-${away.id}`) % 8))
-  };
+  const diff = h - a;
+  const spread = clamp(Math.round(diff / 4), -20, 20);
+
+  // Base score range 8-28, higher when teams are close (more attacking)
+  const base = 8 + (hash(`${state.career.seed}-${home.id}-${away.id}-${roundNo}`) % 21);
+
+  // Stronger team wins ~75% of the time, but upsets happen
+  const upsetRoll = hash(`${state.career.seed}-${home.id}-${away.id}-${roundNo}-upset`) % 100;
+  const homeScore = base + spread + (hash(`${state.career.seed}-${home.id}`) % 10);
+  const awayScore = base - spread + (hash(`${state.career.seed}-${away.id}`) % 10);
+
+  // Occasionally flip the result for an upset
+  if (diff > 3 && upsetRoll < 8) {
+    // Underdog wins this one
+    return {
+      home: Math.max(4, awayScore + 2),
+      away: Math.max(4, homeScore + 1)
+    };
+  }
+
+  // Ensure the higher-rated team wins more often by giving them a small boost
+  const homeBoost = diff > 0 ? 2 : diff < 0 ? -2 : 0;
+  const finalHome = Math.max(4, homeScore + homeBoost);
+  const finalAway = Math.max(4, awayScore - homeBoost);
+
+  return { home: finalHome, away: finalAway };
 }
 
 function buildMatchTeamForSim(team) {
