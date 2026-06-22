@@ -320,7 +320,8 @@ function startCareer(teamId) {
     seasonOver: false,
     recycleCount: 0,
     marketRoll: 0,
-    marketPool: null
+    marketPool: null,
+    seenMarketIds: []
   };
   state.phase = "prep";
   state.injuriesCheckedRound = null;
@@ -451,6 +452,10 @@ function recruitPlayer(playerId) {
   if (state.purchasesThisRound >= 2) {
     alert("Transfer limit: max 2 purchases per round");
     return;
+  }
+  // Remove from market pool so buy button disappears immediately
+  if (state.career.marketPool) {
+    state.career.marketPool = state.career.marketPool.filter((p) => p.id !== playerId);
   }
   state.career.budget -= player.value;
   player.currentTeamId = state.career.teamId;
@@ -1272,49 +1277,61 @@ function marketPlayers() {
   if (state.career.marketPool) return state.career.marketPool;
 
   const owned = new Set(state.career.rosterIds);
-  const available = state.players.filter((player) => !owned.has(player.id));
+  // Exclude owned players AND players already seen in previous markets for this career
+  const seen = new Set(state.career.seenMarketIds);
+  const available = state.players.filter((player) => !owned.has(player.id) && !seen.has(player.id));
 
-  // Separate high-rated (72+) and regular players
-  const elite = available.filter((player) => player.rating >= 72);
-  const regular = available.filter((player) => player.rating < 72);
+  // If run out of unseen players, reset the seen list (full cycle)
+  if (available.length < 10) {
+    state.career.seenMarketIds = [];
+    seen.clear();
+    const freshAvailable = state.players.filter((player) => !owned.has(player.id));
+    return generateMarketPool(freshAvailable, owned);
+  }
 
-  // Shuffle helpers
-  const shuffle = (arr, seed) => [...arr].sort(() => 0.5 - seededRandom(seed + arr.length));
+  return generateMarketPool(available, owned);
+}
+
+function generateMarketPool(pool, owned) {
+  const seed = `${state.career.seed}-market-${state.career.roundIndex}-${state.career.marketRoll}`;
+
+  // Fisher-Yates shuffle with seeded random
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(seededRandom(seed + "-" + i) * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  // Split into elite (72+) and regular
+  const elite = shuffled.filter((p) => p.rating >= 72);
+  const regular = shuffled.filter((p) => p.rating < 72);
 
   const selected = [];
 
-  // Guarantee one elite player (if any exist)
+  // Guarantee one elite if available
   if (elite.length > 0) {
-    const pool = shuffle(elite, `${state.career.seed}-elite-${state.career.roundIndex}-${state.career.marketRoll}`);
-    selected.push(pool[0]);
+    selected.push(elite[0]);
   }
 
-  // Fill remaining 5-6 slots from ALL available players (weighted by rarity)
-  const remainingSlots = 6 - selected.length;
-  const remainingPool = available.filter((p) => !selected.includes(p));
-  const weighted = remainingPool.map((player) => {
-    const rarity = Math.pow((player.rating - 48) / 48, 3.5);
-    const chance = Math.pow(1 - rarity, 2);
-    return { player, chance };
-  });
-
-  const sorted = weighted.sort(() => 0.5 - seededRandom(`${state.career.seed}-fill-${state.career.roundIndex}-${state.career.marketRoll}`));
-
-  for (let i = 0; i < sorted.length && selected.length < 6; i++) {
-    const roll = seededRandom(`${state.career.seed}-pick-${state.career.roundIndex}-${state.career.marketRoll}-${i}`);
-    if (roll < sorted[i].chance) {
-      selected.push(sorted[i].player);
+  // Fill to 10 with a mix: prefer higher-rated but include variety
+  const candidates = [...elite.slice(selected.length === 1 ? 1 : 0), ...regular];
+  for (let i = 0; i < candidates.length && selected.length < 10; i++) {
+    // 25% skip chance to introduce variety (don't always take the top N)
+    if (selected.length < 2 || seededRandom(seed + "-skip-" + i) > 0.25) {
+      selected.push(candidates[i]);
     }
   }
 
-  // Fill remaining with whoever's left
-  if (selected.length < 6) {
-    const leftovers = remainingPool.filter((p) => !selected.includes(p));
-    for (let i = 0; i < leftovers.length && selected.length < 6; i++) {
-      selected.push(leftovers[i]);
+  // If still not enough, force fill
+  if (selected.length < 10) {
+    for (const player of shuffled) {
+      if (selected.length >= 10) break;
+      if (!selected.includes(player)) selected.push(player);
     }
   }
 
+  // Track these as seen
+  state.career.seenMarketIds.push(...selected.map((p) => p.id));
   state.career.marketPool = selected.sort((a, b) => b.rating - a.rating || b.talent - a.talent);
   return state.career.marketPool;
 }
