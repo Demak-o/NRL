@@ -701,16 +701,16 @@ function playMinute() {
   const tryMod = ((attackMods.wideAttack || 0) + (decisionMods.wideAttack || 0)) * 0.8;
 
   // More aggressive threshold — try in good territory, line break often
-  if (eventRoll > 82 + tryMod && state.territory > 70) {
+  if (eventRoll > 86 + tryMod && state.territory > 72) {
     scoreTry(attackKey, attack, pressure, rand);
-  } else if (eventRoll > 72 && state.minute > 6) {
+  } else if (eventRoll > 76 && state.minute > 8) {
     lineBreak(attackKey, attack);
   } else if (eventRoll < 12 + errorMod) {
     errorEvent(attackKey, defendKey, attack);
   } else if (eventRoll > 74 && (attack.tactic.kicking + attackMods.kicking + decisionMods.kicking) > 52 && state.minute > 18) {
     kickEvent(attackKey, defendKey, attack);
-  } else if (eventRoll > 60 && state.territory > 68) {
-    // Penalty goal attempt — 2 points, usually when close but can't break through
+  } else if (eventRoll > 67 && eventRoll < 69 && state.territory > 72 && state.minute % 10 > 8) {
+    // Penalty goal — rare, approximately 1-2 per match
     scorePenalty(attackKey, attack, pressure, rand);
   } else if (state.minute % 5 === 0) {
     setRestartEvent(attackKey, attack);
