@@ -1381,12 +1381,13 @@ function teamPower(team) {
   const defenceMod = (team.tactic.defence - 50) / 7;
   const kickingMod = (team.tactic.kicking - 50) / 9;
   const fatigue = team.runOn.reduce((total, item) => total + (item.fatigue || 0), 0) / team.runOn.length;
-  return (avgRating + styleBoost + tempoMod + defenceMod + kickingMod) - fatigue * 0.35;
+  // Rating difference is amplified — each point of OVR gap is worth ~1.5 power points
+  return (avgRating * 1.5 + styleBoost + tempoMod + defenceMod + kickingMod) - fatigue * 0.35;
 }
 
 function teamPressure(attack, defend, defendMods) {
   const defendPower = teamPower(defend) + (defendMods?.defence || 0) * 0.3;
-  return clamp(50 + teamPower(attack) - defendPower, 15, 88);
+  return clamp(50 + teamPower(attack) - defendPower, 5, 95);
 }
 
 function teamAverage(team) {

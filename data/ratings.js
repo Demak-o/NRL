@@ -89,7 +89,7 @@ window.NRL_RATINGS = {
 "canberra-raiders-mark-tuialii": 60,
 "canberra-raiders-jayze-tuigamala": 57,
 "canberra-raiders-jordan-uta": 57,
- // ── Canterbury-Bankstown Bulldogs ──
+// ── Canterbury-Bankstown Bulldogs ──
 "canterbury-bankstown-bulldogs-matt-burton": 88,
 "canterbury-bankstown-bulldogs-stephen-crichton-c": 93,
 "canterbury-bankstown-bulldogs-joshua-curran": 84,
@@ -128,7 +128,9 @@ window.NRL_RATINGS = {
 "canterbury-bankstown-bulldogs-jethro-rinakama": 57,
 
 
- // ── Cronulla-Sutherland Sharks ──
+
+
+// ── Cronulla-Sutherland Sharks ──
 "cronulla-sutherland-sharks-jayden-berrell": 72,
 "cronulla-sutherland-sharks-blayke-brailey-c": 84,
 "cronulla-sutherland-sharks-billy-burns": 75,
@@ -231,7 +233,9 @@ window.NRL_RATINGS = {
 "gold-coast-titans-oliver-pascoe": 58,
 
 
- // ── Manly Warringah Sea Eagles ──
+
+
+// ── Manly Warringah Sea Eagles ──
 "manly-warringah-sea-eagles-luke-brooks": 84,
 "manly-warringah-sea-eagles-nathan-brown": 79,
 "manly-warringah-sea-eagles-paul-bryan": 67,
@@ -621,6 +625,16 @@ window.NRL_RATINGS = {
 "wests-tigers-ethan-roberts": 57,
 "wests-tigers-faaletino-tavana": 57,
 };
+
+
+
+
+
+
+
+
+
+
 
 
 
