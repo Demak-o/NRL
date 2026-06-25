@@ -626,17 +626,3 @@ window.NRL_RATINGS = {
 "wests-tigers-faaletino-tavana": 57,
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-

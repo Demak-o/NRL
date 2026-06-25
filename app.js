@@ -700,22 +700,23 @@ function playMinute() {
   state.match.stats[attackKey].meters += Math.max(18, Math.round(pressure * 0.9 + rand * (35 + ((attackMods.metres || 0) + (decisionMods.metres || 0)) * 100)));
   state.match.stats[defendKey].tackles += Math.round((5 + Math.floor(rand * 4)) * (1 + (defendMods.defence + decisionMods.defence) * 0.02));
 
-  // Higher pressure = more action. Base eventRoll shifted to produce more scoring
-  const eventRoll = clamp(rand * 120 + pressure * 0.18, 0, 115);
+  // Pressure heavily influences event roll — blowouts when pressure gap is huge
+  const pressureSwing = (pressure - 50) * 0.3;
+  const eventRoll = clamp(rand * 100 + pressureSwing, 0, 110);
   const errorMod = (attack.tactic.tempo - 50) / 8 + ((attackMods.errors || 0) + (decisionMods.errors || 0)) * 20;
   const tryMod = ((attackMods.wideAttack || 0) + (decisionMods.wideAttack || 0)) * 0.8;
 
-  // More aggressive threshold — try in good territory, line break often
-  if (eventRoll > 86 + tryMod && state.territory > 72) {
+  // Even teams land in 70-85 territory most minutes
+  // A dominant team (pressure 70+) pushes into 85+ territory regularly
+  if (eventRoll > 89 + tryMod && state.territory > 74) {
     scoreTry(attackKey, attack, pressure, rand);
-  } else if (eventRoll > 76 && state.minute > 8) {
+  } else if (eventRoll > 80 && state.minute > 10) {
     lineBreak(attackKey, attack);
-  } else if (eventRoll < 12 + errorMod) {
+  } else if (eventRoll < 10 + errorMod) {
     errorEvent(attackKey, defendKey, attack);
-  } else if (eventRoll > 74 && (attack.tactic.kicking + attackMods.kicking + decisionMods.kicking) > 52 && state.minute > 18) {
+  } else if (eventRoll > 76 && (attack.tactic.kicking + attackMods.kicking + decisionMods.kicking) > 54 && state.minute > 18) {
     kickEvent(attackKey, defendKey, attack);
-  } else if (eventRoll > 67 && eventRoll < 69 && state.territory > 72 && state.minute % 10 > 8) {
-    // Penalty goal — rare, approximately 1-2 per match
+  } else if (eventRoll > 68 && eventRoll < 70 && state.territory > 74 && state.minute % 10 > 8) {
     scorePenalty(attackKey, attack, pressure, rand);
   } else if (state.minute % 5 === 0) {
     setRestartEvent(attackKey, attack);
@@ -1210,29 +1211,31 @@ function simResult(home, away, roundNo) {
   const h = teamPower(buildMatchTeamForSim(home));
   const a = teamPower(buildMatchTeamForSim(away));
   const diff = h - a;
-  const spread = clamp(Math.round(diff / 4), -20, 20);
 
-  // Base score range 8-28, higher when teams are close (more attacking)
-  const base = 8 + (hash(`${state.career.seed}-${home.id}-${away.id}-${roundNo}`) % 21);
+  // Spread is now proportional to power gap — blowout territory when diff is large
+  const spread = clamp(Math.round(diff / 3), -30, 30);
 
-  // Stronger team wins ~75% of the time, but upsets happen
+  // Base score lower — more about the gap than baseline scoring
+  const base = 4 + (hash(`${state.career.seed}-${home.id}-${away.id}-${roundNo}`) % 13);
+
   const upsetRoll = hash(`${state.career.seed}-${home.id}-${away.id}-${roundNo}-upset`) % 100;
-  const homeScore = base + spread + (hash(`${state.career.seed}-${home.id}`) % 10);
-  const awayScore = base - spread + (hash(`${state.career.seed}-${away.id}`) % 10);
 
-  // Occasionally flip the result for an upset
-  if (diff > 3 && upsetRoll < 8) {
-    // Underdog wins this one
+  // Home team gets a slight natural advantage
+  const homeScore = base + spread + (hash(`${state.career.seed}-${home.id}`) % 8);
+  const awayScore = Math.max(0, base - spread + (hash(`${state.career.seed}-${away.id}`) % 6));
+
+  // Upset: ~8% chance when diff > 5, underdog wins
+  if (diff > 6 && upsetRoll < 8) {
     return {
-      home: Math.max(4, awayScore + 2),
-      away: Math.max(4, homeScore + 1)
+      home: Math.max(4, awayScore + 4),
+      away: Math.max(4, homeScore + 2)
     };
   }
 
-  // Ensure the higher-rated team wins more often by giving them a small boost
-  const homeBoost = diff > 0 ? 2 : diff < 0 ? -2 : 0;
-  const finalHome = Math.max(4, homeScore + homeBoost);
-  const finalAway = Math.max(4, awayScore - homeBoost);
+  // Equal teams produce close games (each gets 8-20)
+  // 90 OVR vs 83 OVR (diff ~14): home ~30-38, away ~4-10
+  const finalHome = Math.max(4, homeScore + 2);
+  const finalAway = Math.max(0, awayScore);
 
   return { home: finalHome, away: finalAway };
 }
@@ -1381,13 +1384,13 @@ function teamPower(team) {
   const defenceMod = (team.tactic.defence - 50) / 7;
   const kickingMod = (team.tactic.kicking - 50) / 9;
   const fatigue = team.runOn.reduce((total, item) => total + (item.fatigue || 0), 0) / team.runOn.length;
-  // Rating difference is amplified — each point of OVR gap is worth ~1.5 power points
-  return (avgRating * 1.5 + styleBoost + tempoMod + defenceMod + kickingMod) - fatigue * 0.35;
+  // Amplify rating difference — each OVR point gap is worth ~2 power points
+  return (avgRating * 2 + styleBoost + tempoMod + defenceMod + kickingMod) - fatigue * 0.35;
 }
 
 function teamPressure(attack, defend, defendMods) {
   const defendPower = teamPower(defend) + (defendMods?.defence || 0) * 0.3;
-  return clamp(50 + teamPower(attack) - defendPower, 5, 95);
+  return clamp(50 + teamPower(attack) - defendPower, 3, 97);
 }
 
 function teamAverage(team) {
